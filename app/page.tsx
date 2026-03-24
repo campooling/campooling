@@ -1,6 +1,16 @@
+"use client";
+
 import React from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function OnboardingPage() {
+  const router = useRouter();
+
+  const handleFakeLogin = () => {
+    // 백엔드 API 연결 전 임시 라우팅 (버튼 누르면 feed로 이동)
+    router.push('/feed');
+  };
+
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-white px-6 font-sans antialiased">
       {/* 정중앙: 로고 */}
@@ -13,13 +23,12 @@ export default function OnboardingPage() {
         
         <h1 className="flex items-center justify-center text-center text-5xl font-extrabold tracking-tight sm:text-6xl md:text-7xl">
           <span className="text-black">Ca</span>
-          {/* 1. 'r'만 분리하여 가로로 25% 늘림 (scale-x-[1.25]) */}
-          {/* 사용자가 원하는 만큼 수치를 조절하세요. 예: 1.3, 1.35 */}
+          {/* 'r' 넓히기 */}
           <span className="inline-block origin-left scale-x-[1.25] text-black">
             r
           </span>
-          {/* 2. 'npooling'에서 -ml (Negative Margin) 제거: overlap 없앰 */}
-          <span className="ml-[0.04em] inline bg-gradient-to-r from-indigo-600 via-purple-600 to-purple-500 bg-clip-text text-transparent">
+          {/* 간격 띄운 npooling */}
+          <span className="inline bg-gradient-to-r from-indigo-600 via-purple-600 to-purple-500 bg-clip-text text-transparent">
             npooling
           </span>
         </h1>
@@ -35,6 +44,7 @@ export default function OnboardingPage() {
       <div className="w-full max-w-sm shrink-0 self-center pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
         <button
           type="button"
+          onClick={handleFakeLogin}
           className="flex w-full items-center justify-center gap-2.5 rounded-2xl border border-gray-200 bg-white py-3.5 text-base font-semibold text-gray-800 shadow-sm transition-all hover:border-purple-300 hover:bg-gray-50 active:scale-95 sm:gap-3 sm:py-4 sm:text-lg"
         >
           <svg className="h-6 w-6 shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
