@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // 개발 모드 우하단 Next.js "N" 표시 비활성화 (로그인 화면 등 UI 가림 방지)
+  devIndicators: false,
 };
 
 export default nextConfig;
