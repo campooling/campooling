@@ -4,6 +4,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
+import {
+  USER_PROFILE_KEY,
+  loadUserProfile,
+  roleLabel,
+} from '../../lib/userProfile';
 
 type Room = {
   id: string;
@@ -30,13 +35,16 @@ export default function ProfilePage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(() => new Set());
   const [now, setNow] = useState(() => Date.now());
+  const [displayName, setDisplayName] = useState('Guest');
+  const [displayRole, setDisplayRole] = useState('—');
 
-  // 프론트엔드 UI 확인용 Mock Data 
-  const userProfile = {
-    name: 'Jaeho Jung',
-    role: 'KATUSA',
-    location: 'Camp Humphreys',
-  };
+  useEffect(() => {
+    const p = loadUserProfile();
+    if (p) {
+      setDisplayName(p.nickname);
+      setDisplayRole(roleLabel(p.role));
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -83,8 +91,13 @@ export default function ProfilePage() {
   }, [upcomingRooms, joinedIds]);
 
   const handleLogout = () => {
+    try {
+      localStorage.removeItem(USER_PROFILE_KEY);
+    } catch {
+      // ignore
+    }
     alert('Logged out successfully.');
-    router.push('/'); // 로그인(대문) 화면으로 이동
+    router.push('/');
   };
 
   return (
@@ -103,9 +116,9 @@ export default function ProfilePage() {
               🧑‍🚀
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">{userProfile.name}</h2>
+              <h2 className="text-xl font-bold text-gray-900">{displayName}</h2>
               <p className="text-sm font-medium text-gray-500">
-                {userProfile.role} • {userProfile.location}
+                {displayRole} • Camp Humphreys
               </p>
             </div>
           </div>

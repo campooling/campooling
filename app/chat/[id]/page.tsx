@@ -197,8 +197,14 @@ export default function ChatRoomPage() {
                       const nextRooms = rooms
                         .map((r) => {
                           if (r.id !== roomId) return r;
-                          if (r.creatorId === 'me') return null; // 만든 방이면 삭제
-                          return { ...r, currentPeople: Math.max(0, r.currentPeople - 1) };
+                          // 나만 있으면 방 자체 삭제
+                          if (r.currentPeople <= 1) return null;
+                          // 다른 멤버가 있으면 방 유지(방장이 나가도 동일), 인원만 감소
+                          return {
+                            ...r,
+                            currentPeople: Math.max(0, r.currentPeople - 1),
+                            ...(r.creatorId === 'me' ? { creatorId: undefined } : {}),
+                          };
                         })
                         .filter(Boolean) as Room[];
                       localStorage.setItem(ROOMS_KEY, JSON.stringify(nextRooms));

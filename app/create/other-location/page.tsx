@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function OtherLocationPage() {
+function OtherLocationInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const type = (searchParams.get("type") ?? "").toLowerCase();
@@ -68,3 +68,16 @@ export default function OtherLocationPage() {
   );
 }
 
+export default function OtherLocationPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-dvh items-center justify-center bg-white text-sm font-semibold text-gray-500">
+          Loading…
+        </div>
+      }
+    >
+      <OtherLocationInner />
+    </Suspense>
+  );
+}
