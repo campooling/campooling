@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Send } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { ArrowLeft, Send, LogOut } from 'lucide-react';
 
 // 백엔드 연결 전 Mock Data (임시 대화 내용)
 const initialMessages = [
@@ -11,10 +11,50 @@ const initialMessages = [
   { id: 3, sender: 'me', text: 'Got it. I will be there in 2 mins.', time: '18:51' },
 ];
 
+type Room = {
+  id: string;
+  createdAt: number;
+  creatorId?: string;
+  date: string;
+  time: string;
+  origin: string;
+  destination: string;
+  currentPeople: number;
+  maxPeople: number;
+};
+
+const ROOMS_KEY = 'campoolingRooms';
+const JOINED_KEY = 'campoolingJoinedRooms';
+
 export default function ChatRoomPage() {
   const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const roomId = params?.id ?? '';
   const [messages, setMessages] = useState(initialMessages);
   const [inputText, setInputText] = useState('');
+  const [room, setRoom] = useState<Room | null>(null);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ROOMS_KEY);
+      const rooms = raw ? (JSON.parse(raw) as Room[]) : [];
+      const found = Array.isArray(rooms) ? rooms.find((r) => r.id === roomId) : null;
+      setRoom(found ?? null);
+    } catch {
+      setRoom(null);
+    }
+  }, [roomId]);
+
+  const headerTitle = useMemo(() => {
+    if (!room) return 'Chat';
+    return `${room.origin} → ${room.destination}`;
+  }, [room]);
+
+  const headerMembers = useMemo(() => {
+    if (!room) return '';
+    return `${room.currentPeople}/${room.maxPeople} Members`;
+  }, [room]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,12 +81,20 @@ export default function ChatRoomPage() {
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <div>
-          <h1 className="text-lg font-bold tracking-tight text-gray-900 leading-tight">
-            CPX Gate → Pyeongtaek St.
+        <div className="flex-1 min-w-0">
+          <h1 className="truncate text-lg font-bold tracking-tight text-gray-900 leading-tight">
+            {headerTitle}
           </h1>
-          <p className="text-sm font-medium text-indigo-600">3/4 Members</p>
+          {headerMembers ? <p className="text-sm font-medium text-indigo-600">{headerMembers}</p> : null}
         </div>
+        <button
+          type="button"
+          onClick={() => setShowLeaveConfirm(true)}
+          className="ml-auto inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95"
+        >
+          <LogOut className="h-4 w-4 mr-1" />
+          Leave
+        </button>
       </header>
 
       {/* 대화 내역 스크롤 영역 */}
@@ -105,6 +153,70 @@ export default function ChatRoomPage() {
           </button>
         </form>
       </div>
+
+      {/* 나가기 경고 오버레이 */}
+      {showLeaveConfirm ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-6">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-xl">
+                ⚠️
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-extrabold tracking-tight text-gray-900">Leave this chat?</h2>
+                <p className="mt-1 text-sm font-medium text-gray-600">
+                  If you leave, you may lose access to this room.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(false)}
+                className="flex-1 rounded-2xl border border-gray-200 bg-white py-3.5 text-base font-bold text-gray-700 shadow-sm hover:border-purple-200 hover:bg-purple-50 active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const joinedRaw = localStorage.getItem(JOINED_KEY);
+                    const joined = joinedRaw ? (JSON.parse(joinedRaw) as string[]) : [];
+                    const nextJoined = Array.isArray(joined) ? joined.filter((x) => x !== roomId) : [];
+                    localStorage.setItem(JOINED_KEY, JSON.stringify(nextJoined));
+                  } catch {
+                    // ignore
+                  }
+
+                  try {
+                    const raw = localStorage.getItem(ROOMS_KEY);
+                    const rooms = raw ? (JSON.parse(raw) as Room[]) : [];
+                    if (Array.isArray(rooms)) {
+                      const nextRooms = rooms
+                        .map((r) => {
+                          if (r.id !== roomId) return r;
+                          if (r.creatorId === 'me') return null; // 만든 방이면 삭제
+                          return { ...r, currentPeople: Math.max(0, r.currentPeople - 1) };
+                        })
+                        .filter(Boolean) as Room[];
+                      localStorage.setItem(ROOMS_KEY, JSON.stringify(nextRooms));
+                    }
+                  } catch {
+                    // ignore
+                  }
+
+                  router.push('/feed');
+                }}
+                className="flex-1 rounded-2xl bg-red-600 py-3.5 text-base font-extrabold text-white shadow-lg transition-all hover:bg-red-700 active:scale-95"
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

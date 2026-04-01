@@ -8,11 +8,10 @@ import BottomNav from '../components/BottomNav';
 // Mock Data: 험프리스 주변 거점
 const HumphreysLocations = [
   'Pyeongtaek St.',
+  'Walk in gate',
+  'P2061',
   'Jije St.',
-  'CPX Gate',
-  'Main Gate',
-  'Hamjeong-ri Gate',
-  'Anjeong-ri St.',
+  'Other',
 ];
 
 // 날짜 형식 지정 유틸리티 (월 11, 화 12 등)
@@ -62,6 +61,23 @@ export default function CreateRoomPage() {
     }
   }, []);
 
+  // Other 입력 페이지에서 돌아왔을 때 값 반영
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const originCustom = sessionStorage.getItem('customLocationOrigin');
+    if (originCustom) {
+      setOrigin(originCustom);
+      sessionStorage.removeItem('customLocationOrigin');
+    }
+
+    const destinationCustom = sessionStorage.getItem('customLocationDestination');
+    if (destinationCustom) {
+      setDestination(destinationCustom);
+      sessionStorage.removeItem('customLocationDestination');
+    }
+  }, []);
+
   // --- 핸들러 (Handlers) ---
 
   // 시간 입력 검증 및 상태 업데이트
@@ -89,6 +105,11 @@ export default function CreateRoomPage() {
 
   // 장소 선택 처리
   const handleLocationSelect = (location: string) => {
+    if (location === 'Other' && activeLocationModal) {
+      router.push(`/create/other-location?type=${activeLocationModal}`);
+      setActiveLocationModal(null);
+      return;
+    }
     if (activeLocationModal === 'origin') {
       setOrigin(location);
     } else if (activeLocationModal === 'destination') {
@@ -109,6 +130,36 @@ export default function CreateRoomPage() {
     }
 
     const formattedTime = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+
+    try {
+      const room = {
+        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        createdAt: Date.now(),
+        creatorId: 'me',
+        date: selectedDate, // yyyy-mm-dd
+        time: formattedTime, // HH:mm
+        origin,
+        destination,
+        currentPeople: 1,
+        maxPeople,
+      };
+
+      const key = 'campoolingRooms';
+      const raw = localStorage.getItem(key);
+      const rooms = raw ? JSON.parse(raw) : [];
+      rooms.unshift(room);
+      localStorage.setItem(key, JSON.stringify(rooms));
+
+      // 만든 사람은 이미 참여 중으로 처리
+      const joinedKey = 'campoolingJoinedRooms';
+      const joinedRaw = localStorage.getItem(joinedKey);
+      const joined: string[] = joinedRaw ? JSON.parse(joinedRaw) : [];
+      if (!joined.includes(room.id)) joined.unshift(room.id);
+      localStorage.setItem(joinedKey, JSON.stringify(joined));
+    } catch {
+      // 로컬 저장 실패 시에도 UX는 유지
+    }
+
     alert(`Room created successfully! \nOn ${selectedDate} at ${formattedTime} \nFrom ${origin} to ${destination}`);
     router.push('/feed');
   };
@@ -117,7 +168,6 @@ export default function CreateRoomPage() {
   const LocationSelectionModal = () => {
     if (!activeLocationModal) return null;
 
-    const title = activeLocationModal === 'origin' ? 'Pick-up Point (Origin)' : 'Drop-off Point (Destination)';
     const otherLocation = activeLocationModal === 'origin' ? destination : origin;
 
     return (
@@ -126,7 +176,6 @@ export default function CreateRoomPage() {
           <button onClick={() => setActiveLocationModal(null)} className="text-gray-600 hover:text-indigo-600">
             <X className="h-6 w-6" />
           </button>
-          <h2 className="text-xl font-bold tracking-tight text-gray-900">{title}</h2>
         </header>
         <main className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
           {HumphreysLocations.map((loc) => {
@@ -166,7 +215,7 @@ export default function CreateRoomPage() {
         {/* === 2. 출발지/도착지 설정 (사진 2 참조: 노선도형 UI) === */}
         <div className="space-y-2.5">
           <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 pl-1">
-            Route (Tap to set)
+            Route.
           </label>
           <div className="relative flex items-stretch gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm antialiased">
             {/* 노선도 그래픽 (수직선 + 점) */}
@@ -184,7 +233,7 @@ export default function CreateRoomPage() {
                   onClick={() => setActiveLocationModal('origin')}
                   className="w-full text-left"
                 >
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pick-up (Origin)</p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pick-up</p>
                     <p className={`text-base font-semibold ${origin ? 'text-gray-900' : 'text-gray-400'}`}>
                         {origin || 'Select departure point'}
                     </p>
@@ -197,7 +246,7 @@ export default function CreateRoomPage() {
                   onClick={() => setActiveLocationModal('destination')}
                   className="w-full text-left"
                 >
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Drop-off (Destination)</p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Destination</p>
                     <p className={`text-base font-semibold ${destination ? 'text-gray-900' : 'text-gray-400'}`}>
                         {destination || 'Select destination'}
                     </p>
@@ -210,7 +259,7 @@ export default function CreateRoomPage() {
         <div className="space-y-2.5">
           <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 pl-1">
             <CalendarDays className="h-4 w-4 text-indigo-500" />
-            Departure Date (Next 7 days)
+            Departure date
           </label>
           {/* 가로 스크롤 영역 */}
           <div className="flex gap-3 overflow-x-auto pb-1 antialiased -mx-6 px-6 scrollbar-hide">
@@ -235,7 +284,7 @@ export default function CreateRoomPage() {
         <div className="space-y-2.5">
           <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 pl-1">
             <Clock className="h-4 w-4 text-indigo-500" />
-            Departure Time (HH:mm)
+            Time
           </label>
           <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm antialiased">
             {/* 시(HH) 입력창 */}
