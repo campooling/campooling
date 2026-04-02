@@ -1,30 +1,103 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
+import {
+  USER_PROFILE_KEY,
+  loadUserProfile,
+  roleLabel,
+} from '../../lib/userProfile';
+
+type Room = {
+  id: string;
+  createdAt: number;
+  creatorId?: string;
+  date: string; // yyyy-mm-dd
+  time: string; // HH:mm
+  origin: string;
+  destination: string;
+  currentPeople: number;
+  maxPeople: number;
+};
+
+const ROOMS_KEY = 'campoolingRooms';
+const JOINED_KEY = 'campoolingJoinedRooms';
+
+function toDateTimeMs(room: Pick<Room, 'date' | 'time'>) {
+  const d = new Date(`${room.date}T${room.time}:00`);
+  return d.getTime();
+}
 
 export default function ProfilePage() {
   const router = useRouter();
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [joinedIds, setJoinedIds] = useState<Set<string>>(() => new Set());
+  const [now, setNow] = useState(() => Date.now());
+  const [displayName, setDisplayName] = useState('Guest');
+  const [displayRole, setDisplayRole] = useState('—');
 
-  // 프론트엔드 UI 확인용 Mock Data 
-  const userProfile = {
-    name: 'Jaeho Jung',
-    role: 'KATUSA',
-    location: 'Camp Humphreys',
-  };
+  useEffect(() => {
+    const p = loadUserProfile();
+    if (p) {
+      setDisplayName(p.nickname);
+      setDisplayRole(roleLabel(p.role));
+    }
+  }, []);
 
-  const activeRoom = {
-    id: 1,
-    time: '19:00 Today',
-    route: 'CPX Gate → Pyeongtaek St.',
-    status: 'Waiting (3/4)',
-  };
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ROOMS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Room[]) : [];
+      setRooms(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setRooms([]);
+    }
+
+    try {
+      const raw = localStorage.getItem(JOINED_KEY);
+      const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+      setJoinedIds(new Set(Array.isArray(parsed) ? parsed : []));
+    } catch {
+      setJoinedIds(new Set());
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const upcomingRooms = useMemo(() => {
+    const filtered = rooms.filter((r) => {
+      const ms = toDateTimeMs(r);
+      return Number.isFinite(ms) && ms > now;
+    });
+    if (filtered.length !== rooms.length) {
+      try {
+        localStorage.setItem(ROOMS_KEY, JSON.stringify(filtered));
+      } catch {
+        // ignore
+      }
+    }
+    return filtered;
+  }, [rooms, now]);
+
+  const myRooms = useMemo(() => {
+    return upcomingRooms
+      .filter((r) => joinedIds.has(r.id))
+      .sort((a, b) => toDateTimeMs(a) - toDateTimeMs(b));
+  }, [upcomingRooms, joinedIds]);
 
   const handleLogout = () => {
+    try {
+      localStorage.removeItem(USER_PROFILE_KEY);
+    } catch {
+      // ignore
+    }
     alert('Logged out successfully.');
-    router.push('/'); // 로그인(대문) 화면으로 이동
+    router.push('/');
   };
 
   return (
@@ -43,9 +116,9 @@ export default function ProfilePage() {
               🧑‍🚀
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">{userProfile.name}</h2>
+              <h2 className="text-xl font-bold text-gray-900">{displayName}</h2>
               <p className="text-sm font-medium text-gray-500">
-                {userProfile.role} • {userProfile.location}
+                {displayRole} • Camp Humphreys
               </p>
             </div>
           </div>
@@ -54,21 +127,39 @@ export default function ProfilePage() {
         {/* 2. 현재 참여 중인 방 (기획 요소 반영) */}
         <div>
           <h3 className="mb-3 px-1 text-sm font-bold text-gray-500">My Active Room</h3>
-          <div 
-            onClick={() => router.push('/chat/1')} // 클릭 시 채팅방으로 바로 이동
-            className="flex cursor-pointer items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-5 shadow-sm transition-all hover:border-indigo-300 active:scale-95"
-          >
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-indigo-600 p-2.5 text-white">
-                <CarTaxiFront className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-indigo-600">{activeRoom.status}</p>
-                <p className="text-base font-semibold text-gray-900">{activeRoom.route}</p>
-              </div>
+          {myRooms.length === 0 ? (
+            <div className="rounded-2xl border border-dashed bg-white p-6 text-center text-sm font-semibold text-gray-500">
+              No active rooms.
             </div>
-            <ChevronRight className="h-5 w-5 text-indigo-400" />
-          </div>
+          ) : (
+            <div className="space-y-3">
+              {myRooms.map((r) => (
+                <div
+                  key={r.id}
+                  onClick={() => router.push(`/chat/${r.id}`)}
+                  className="flex cursor-pointer items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-5 shadow-sm transition-all hover:border-indigo-300 active:scale-95"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="rounded-full bg-indigo-600 p-2.5 text-white">
+                      <CarTaxiFront className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-indigo-600">
+                        {r.currentPeople}/{r.maxPeople} Members
+                      </p>
+                      <p className="text-base font-semibold text-gray-900">
+                        {r.origin} → {r.destination}
+                      </p>
+                      <p className="text-xs font-semibold text-gray-500">
+                        {r.date} {r.time}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-indigo-400" />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 3. 메뉴 리스트 (미니멀) */}

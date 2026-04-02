@@ -2,13 +2,17 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
+import { loadUserProfile } from '../lib/userProfile';
 
 export default function OnboardingPage() {
   const router = useRouter();
 
   const handleFakeLogin = () => {
-    // 백엔드 API 연결 전 임시 라우팅 (버튼 누르면 feed로 이동)
-    router.push('/feed');
+    if (typeof window !== 'undefined' && loadUserProfile()) {
+      router.push('/feed');
+      return;
+    }
+    router.push('/signup');
   };
 
   return (
