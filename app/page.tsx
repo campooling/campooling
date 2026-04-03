@@ -1,18 +1,34 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { loadUserProfile } from '../lib/userProfile';
+import { createClient } from '@/lib/supabase/client';
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const supabase = createClient();
 
-  const handleFakeLogin = () => {
-    if (typeof window !== 'undefined' && loadUserProfile()) {
-      router.push('/feed');
-      return;
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        router.replace('/signup');
+      }
+    };
+    checkUser();
+  }, [router, supabase]);
+
+  const handleGoogleLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      console.error('Error logging in:', error.message);
     }
-    router.push('/signup');
   };
 
   return (
@@ -48,7 +64,7 @@ export default function OnboardingPage() {
       <div className="w-full max-w-sm shrink-0 self-center pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
         <button
           type="button"
-          onClick={handleFakeLogin}
+          onClick={handleGoogleLogin}
           className="flex w-full items-center justify-center gap-2.5 rounded-2xl border border-gray-200 bg-white py-3.5 text-base font-semibold text-gray-800 shadow-sm transition-all hover:border-purple-300 hover:bg-gray-50 active:scale-95 sm:gap-3 sm:py-4 sm:text-lg"
         >
           <svg className="h-6 w-6 shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
