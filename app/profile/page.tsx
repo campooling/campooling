@@ -55,22 +55,28 @@ export default function ProfilePage() {
       }
 
       // 2. Fetch My Active Pods (Joined pods that are active)
-      const { data: joinedPods } = await supabase
-        .from('pods')
+      const { data: memberships } = await supabase
+        .from('pod_members')
         .select(`
-          *,
-          member_count:pod_members(count),
-          pod_members!inner(user_id)
+          pod:pods!inner (
+            *,
+            member_count:pod_members(count)
+          )
         `)
-        .eq('pod_members.user_id', user.id)
-        .eq('status', 'active')
-        .order('departure_time', { ascending: true });
+        .eq('user_id', user.id)
+        .eq('pod.status', 'active');
 
-      if (joinedPods) {
-        const formattedPods = joinedPods.map((p: any) => ({
-          ...p,
-          member_count: p.member_count[0]?.count || 0
-        }));
+      if (memberships) {
+        const formattedPods = memberships
+          .map((m: any) => m.pod)
+          .filter(Boolean)
+          .map((p: any) => ({
+            ...p,
+            member_count: p.member_count[0]?.count || 0
+          }))
+          .sort((a: any, b: any) => 
+            new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
+          );
         setMyPods(formattedPods);
       }
       setLoading(false);
