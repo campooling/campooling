@@ -28,13 +28,14 @@ function toDateTimeMs(room: Pick<Room, 'date' | 'time'>) {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const supabase = createClient();
+  const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
   const [myPods, setMyPods] = useState<any[]>([]);
   const [displayName, setDisplayName] = useState('Guest');
   const [displayRole, setDisplayRole] = useState('—');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!supabase) return;
     const fetchData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -67,6 +68,7 @@ export default function ProfilePage() {
         .eq('pod.status', 'active');
 
       if (memberships) {
+        const now = Date.now();
         const formattedPods = memberships
           .map((m: any) => m.pod)
           .filter(Boolean)
@@ -74,6 +76,11 @@ export default function ProfilePage() {
             ...p,
             member_count: p.member_count[0]?.count || 0
           }))
+          // 6시간 지난 방은 프로필에서도 제거(그리고 status 만료 처리)
+          .filter((p: any) => {
+            const ms = new Date(p.departure_time).getTime();
+            return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > now;
+          })
           .sort((a: any, b: any) => 
             new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
           );
@@ -86,6 +93,7 @@ export default function ProfilePage() {
   }, [router, supabase]);
 
   const handleLogout = async () => {
+    if (!supabase) return;
     await supabase.auth.signOut();
     router.push('/');
   };
@@ -133,7 +141,7 @@ export default function ProfilePage() {
             <div className="space-y-3">
               {myPods.map((r) => {
                 const timeStr = new Date(r.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-                const dateStr = new Date(r.departure_time).toLocaleDateString([], { month: '2-digit', day: '2-digit' });
+                const dateStr = new Date(r.departure_time).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' });
 
                 return (
                   <div
@@ -153,7 +161,7 @@ export default function ProfilePage() {
                           {r.origin} → {r.destination}
                         </p>
                         <p className="text-xs font-semibold text-gray-500">
-                          {dateStr} {timeStr}
+                          {dateStr}, {timeStr}
                         </p>
                       </div>
                     </div>

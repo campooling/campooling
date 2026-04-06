@@ -19,20 +19,25 @@ type Pod = {
 };
 
 function formatHeader(dateIso: string) {
-  const d = new Date(dateIso);
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  return `${d.getMonth() + 1}/${d.getDate()} ${days[d.getDay()]}`;
+  const d = new Date(`${dateIso}T00:00:00`);
+  const months = [
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December'
+  ];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 export default function FeedPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
   const [pods, setPods] = useState<Pod[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   const fetchPods = async () => {
+    if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id || null);
 
@@ -52,7 +57,28 @@ export default function FeedPage() {
         ...p,
         member_count: p.member_count[0]?.count || 0
       }));
-      setPods(formattedPods);
+      // 6시간 지난 방은 status를 만료로 바꿔서 피드에서 제거
+      const expiredIds = formattedPods
+        .filter((p: any) => {
+          const ms = new Date(p.departure_time).getTime();
+          return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 <= Date.now();
+        })
+        .map((p: any) => p.id);
+      if (expiredIds.length > 0) {
+        try {
+          await supabase.from('pods').update({ status: 'expired' }).in('id', expiredIds);
+        } catch {
+          // ignore
+        }
+      }
+
+      // 화면 표시는 6시간 지난 방 제외
+      setPods(
+        formattedPods.filter((p: any) => {
+          const ms = new Date(p.departure_time).getTime();
+          return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > Date.now();
+        })
+      );
     }
 
     if (user) {
@@ -70,6 +96,7 @@ export default function FeedPage() {
   };
 
   useEffect(() => {
+    if (!supabase) return;
     fetchPods();
 
     // Set up real-time subscription for pod updates
@@ -84,6 +111,11 @@ export default function FeedPage() {
     };
   }, [supabase]);
 
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
   const podsByDate = useMemo(() => {
     const map = new Map<string, Pod[]>();
     for (const p of pods) {
@@ -96,6 +128,7 @@ export default function FeedPage() {
   }, [pods]);
 
   const handleJoin = async (podId: string) => {
+    if (!supabase) return;
     if (!userId) {
       router.push('/');
       return;
@@ -109,9 +142,13 @@ export default function FeedPage() {
       });
 
     if (error) {
-      alert('Failed to join: ' + error.message);
+      // 중복 join은 무시(카운트 안 오르게)
+      if (!String(error.message || '').toLowerCase().includes('duplicate')) {
+        alert('Failed to join: ' + error.message);
+      }
     } else {
       fetchPods();
+      router.push(`/chat/${podId}`);
     }
   };
 
@@ -154,7 +191,9 @@ export default function FeedPage() {
                 const isFull = currentPeople >= pod.capacity;
                 const isJoined = joinedIds.has(pod.id);
                 const isOwner = pod.creator_id === userId;
-                const joinDisabled = isFull || isJoined || isOwner;
+                const podMs = new Date(pod.departure_time).getTime();
+                const isClosed = Number.isFinite(podMs) && podMs + 15 * 60 * 1000 <= now;
+                const joinDisabled = isFull || isJoined || isClosed;
                 const timeStr = new Date(pod.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
                 return (
@@ -163,14 +202,22 @@ export default function FeedPage() {
                     role="button"
                     tabIndex={0}
                     onClick={() => {
+                      if (isClosed) {
+                        alert('This room is closed.');
+                        return;
+                      }
                       router.push(`/chat/${pod.id}`);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
+                        if (isClosed) {
+                          alert('This room is closed.');
+                          return;
+                        }
                         router.push(`/chat/${pod.id}`);
                       }
                     }}
-                    className="mt-5 rounded-2xl border bg-white px-5 py-4 shadow-sm antialiased hover:border-purple-300 active:scale-[0.99] cursor-pointer"
+                    className={`mt-5 rounded-2xl border bg-white px-5 py-4 shadow-sm antialiased hover:border-purple-300 active:scale-[0.99] ${isClosed ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 space-y-2">
@@ -198,7 +245,7 @@ export default function FeedPage() {
                         }`}
                         disabled={joinDisabled}
                       >
-                        {isOwner ? 'My Pod' : isJoined ? 'Joined' : isFull ? 'Full' : 'Join'}
+                        {isJoined ? 'Joined' : isClosed ? 'Closed' : isFull ? 'Full' : isOwner ? 'My Pod' : 'Join'}
                       </button>
                     </div>
                   </div>

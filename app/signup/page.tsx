@@ -7,7 +7,7 @@ import { type UserRole } from "../../lib/userProfile";
 
 export default function SignupPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
   const [nickname, setNickname] = useState("");
   const [role, setRole] = useState<UserRole>("KATUSA");
   const [loading, setLoading] = useState(true);
@@ -18,6 +18,7 @@ export default function SignupPage() {
     const checkUser = async () => {
       if (hasChecked.current) return;
       hasChecked.current = true;
+      if (!supabase) return;
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -43,6 +44,7 @@ export default function SignupPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supabase) return;
     const trimmed = nickname.trim();
     if (!trimmed) {
       alert("Please enter a nickname.");

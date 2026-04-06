@@ -27,6 +27,7 @@ const getFormattedDate = (date: Date) => {
 
 export default function CreateRoomPage() {
   const router = useRouter();
+  const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
 
   // --- 상태 관리 (State) ---
   
@@ -121,6 +122,7 @@ export default function CreateRoomPage() {
 
   // 최종 방 개설 처리
   const handleCreateRoom = async () => {
+    if (!supabase) return;
     if (!selectedDate || !origin || !destination || !hour || !minute || !maxPeople) {
       alert('Please fill out all fields.');
       return;
@@ -130,7 +132,6 @@ export default function CreateRoomPage() {
         return;
     }
 
-    const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     
     if (!user) {
@@ -200,7 +201,7 @@ export default function CreateRoomPage() {
                   className={`w-full text-left rounded-2xl border p-5 transition-all active:scale-95 flex items-center gap-4 ${isDisabled ? 'bg-gray-100 border-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
                 >
                     <MapPin className={`h-5 w-5 shrink-0 ${activeLocationModal === 'origin' ? 'text-indigo-500' : 'text-purple-500'}`} />
-                    <span className="text-base font-semibold">{loc}</span>
+                    <span className={`text-base font-semibold ${isDisabled ? 'text-gray-400' : 'text-gray-900'}`}>{loc}</span>
                 </button>
             )
           })}

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Send, LogOut } from 'lucide-react';
+import { ArrowLeft, Send, LogOut, Menu } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 type Pod = {
@@ -31,16 +31,35 @@ export default function ChatRoomPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const roomId = params?.id ?? '';
-  const supabase = createClient();
+  const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
 
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [pod, setPod] = useState<Pod | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [members, setMembers] = useState<{ id: string; nickname: string }[]>([]);
+
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const podTimeMs = useMemo(() => (pod ? new Date(pod.departure_time).getTime() : NaN), [pod]);
+  const isClosed = useMemo(
+    () => Number.isFinite(podTimeMs) && podTimeMs + 15 * 60 * 1000 <= now,
+    [podTimeMs, now]
+  );
+  const isExpired = useMemo(
+    () => Number.isFinite(podTimeMs) && podTimeMs + 6 * 60 * 60 * 1000 <= now,
+    [podTimeMs, now]
+  );
 
   const fetchPodDetails = async () => {
+    if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id || null);
 
@@ -72,10 +91,25 @@ export default function ChatRoomPage() {
     if (messagesData) {
       setMessages(messagesData);
     }
+
+    const { data: memberRows } = await supabase
+      .from('pod_members')
+      .select('user_id, profiles:user_id(nickname)')
+      .eq('pod_id', roomId);
+
+    if (memberRows) {
+      setMembers(
+        memberRows.map((m: any) => ({
+          id: m.user_id,
+          nickname: m.profiles?.nickname || 'User',
+        }))
+      );
+    }
     setLoading(false);
   };
 
   useEffect(() => {
+    if (!supabase) return;
     fetchPodDetails();
 
     // Subscribe to new messages (빌드 에러를 막기 위해 payload: any 적용!)
@@ -137,7 +171,7 @@ export default function ChatRoomPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !userId) return;
+    if (!supabase || !inputText.trim() || !userId) return;
 
     const content = inputText.trim();
     setInputText('');
@@ -156,7 +190,7 @@ export default function ChatRoomPage() {
   };
 
   const handleLeavePod = async () => {
-    if (!userId) return;
+    if (!supabase || !userId) return;
 
     const { error } = await supabase
       .from('pod_members')
@@ -167,6 +201,19 @@ export default function ChatRoomPage() {
     if (error) {
       alert('Failed to leave pod: ' + error.message);
     } else {
+      try {
+        const { count } = await supabase
+          .from('pod_members')
+          .select('*', { count: 'exact', head: true })
+          .eq('pod_id', roomId);
+
+        // 모두 나가면 방 삭제
+        if ((count ?? 0) <= 0) {
+          await supabase.from('pods').delete().eq('id', roomId);
+        }
+      } catch {
+        // ignore
+      }
       router.push('/feed');
     }
   };
@@ -175,6 +222,23 @@ export default function ChatRoomPage() {
     return (
       <div className="flex h-dvh items-center justify-center bg-white">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  // 15분 지난 방은 입장 불가, 6시간 지난 방은 만료 처리
+  if (isExpired) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-white px-6 text-center text-sm font-semibold text-gray-600">
+        This room has expired.
+      </div>
+    );
+  }
+
+  if (isClosed) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-white px-6 text-center text-sm font-semibold text-gray-600">
+        This room is closed (15+ minutes after the meeting time).
       </div>
     );
   }
@@ -197,11 +261,11 @@ export default function ChatRoomPage() {
         </div>
         <button
           type="button"
-          onClick={() => setShowLeaveConfirm(true)}
-          className="ml-auto inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95"
+          onClick={() => setShowMenu(true)}
+          className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95"
+          aria-label="Menu"
         >
-          <LogOut className="h-4 w-4 mr-1" />
-          Leave
+          <Menu className="h-5 w-5" />
         </button>
       </header>
 
@@ -247,7 +311,7 @@ export default function ChatRoomPage() {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Type a message..."
-            className="max-h-32 min-h-[44px] flex-1 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-base font-medium focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all"
+            className="max-h-32 min-h-[44px] flex-1 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-base font-medium text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all"
           />
           <button
             type="submit"
@@ -294,6 +358,57 @@ export default function ChatRoomPage() {
           </div>
         </div>
       )}
+
+      {/* 메뉴(멤버/시간/나가기) half-screen 팝업 */}
+      {showMenu ? (
+        <div className="fixed inset-0 z-[190] flex items-end bg-black/40">
+          <div className="w-full rounded-t-3xl bg-white px-6 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl max-h-[55vh]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-extrabold tracking-tight text-gray-900">Members</h2>
+              <button
+                type="button"
+                onClick={() => setShowMenu(false)}
+                className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 flex -space-x-3">
+              {members.slice(0, 10).map((m) => (
+                <div
+                  key={m.id}
+                  className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-indigo-100 text-sm font-extrabold text-indigo-700"
+                  title={m.nickname}
+                >
+                  {(m.nickname?.trim()?.[0] || 'U').toUpperCase()}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4">
+              <p className="text-xs font-semibold text-gray-500">Departure</p>
+              <p className="mt-1 text-base font-extrabold text-gray-900">
+                {pod ? new Date(pod.departure_time).toLocaleString('en-US', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'}
+              </p>
+              {isClosed ? (
+                <p className="mt-1 text-xs font-semibold text-red-600">Closed (15+ min after time)</p>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowMenu(false);
+                setShowLeaveConfirm(true);
+              }}
+              className="mt-5 w-full rounded-2xl border border-red-100 bg-red-50 py-4 text-base font-extrabold text-red-600 shadow-sm hover:bg-red-100 active:scale-95"
+            >
+              Leave
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

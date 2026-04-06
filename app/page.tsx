@@ -4,23 +4,24 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-const supabase = createClient();
-
 export default function OnboardingPage() {
   const router = useRouter();
+  const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   useEffect(() => {
     const checkUser = async () => {
+      if (!supabase) return;
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         router.replace('/signup');
       }
     };
     checkUser();
-  }, [router]);
+  }, [router, supabase]);
 
   const handleGoogleLogin = async () => {
+    if (!supabase) return;
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       alert('Supabase environment variables are missing! Check your .env.local file.');
       return;
