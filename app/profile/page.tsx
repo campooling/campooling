@@ -4,11 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
-import {
-  USER_PROFILE_KEY,
-  loadUserProfile,
-  roleLabel,
-} from '../../lib/userProfile';
+import { createClient } from '@/lib/supabase/client';
 
 type Room = {
   id: string;
@@ -32,73 +28,75 @@ function toDateTimeMs(room: Pick<Room, 'date' | 'time'>) {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [joinedIds, setJoinedIds] = useState<Set<string>>(() => new Set());
-  const [now, setNow] = useState(() => Date.now());
+  const supabase = createClient();
+  const [myPods, setMyPods] = useState<any[]>([]);
   const [displayName, setDisplayName] = useState('Guest');
   const [displayRole, setDisplayRole] = useState('—');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const p = loadUserProfile();
-    if (p) {
-      setDisplayName(p.nickname);
-      setDisplayRole(roleLabel(p.role));
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(ROOMS_KEY);
-      const parsed = raw ? (JSON.parse(raw) as Room[]) : [];
-      setRooms(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setRooms([]);
-    }
-
-    try {
-      const raw = localStorage.getItem(JOINED_KEY);
-      const parsed = raw ? (JSON.parse(raw) as string[]) : [];
-      setJoinedIds(new Set(Array.isArray(parsed) ? parsed : []));
-    } catch {
-      setJoinedIds(new Set());
-    }
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const upcomingRooms = useMemo(() => {
-    const filtered = rooms.filter((r) => {
-      const ms = toDateTimeMs(r);
-      return Number.isFinite(ms) && ms > now;
-    });
-    if (filtered.length !== rooms.length) {
-      try {
-        localStorage.setItem(ROOMS_KEY, JSON.stringify(filtered));
-      } catch {
-        // ignore
+    const fetchData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace('/');
+        return;
       }
-    }
-    return filtered;
-  }, [rooms, now]);
 
-  const myRooms = useMemo(() => {
-    return upcomingRooms
-      .filter((r) => joinedIds.has(r.id))
-      .sort((a, b) => toDateTimeMs(a) - toDateTimeMs(b));
-  }, [upcomingRooms, joinedIds]);
+      // 1. Fetch Profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
 
-  const handleLogout = () => {
-    try {
-      localStorage.removeItem(USER_PROFILE_KEY);
-    } catch {
-      // ignore
-    }
-    alert('Logged out successfully.');
+      if (profile) {
+        setDisplayName(profile.nickname || 'User');
+        setDisplayRole(profile.role === 'USA_ARMY' ? 'U.S. Army' : 'KATUSA');
+      }
+
+      // 2. Fetch My Active Pods (Joined pods that are active)
+      const { data: memberships } = await supabase
+        .from('pod_members')
+        .select(`
+          pod:pods!inner (
+            *,
+            member_count:pod_members(count)
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('pod.status', 'active');
+
+      if (memberships) {
+        const formattedPods = memberships
+          .map((m: any) => m.pod)
+          .filter(Boolean)
+          .map((p: any) => ({
+            ...p,
+            member_count: p.member_count[0]?.count || 0
+          }))
+          .sort((a: any, b: any) => 
+            new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
+          );
+        setMyPods(formattedPods);
+      }
+      setLoading(false);
+    };
+
+    fetchData();
+  }, [router, supabase]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     router.push('/');
   };
+
+  if (loading) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-white">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-gray-50 font-sans antialiased pb-24">
@@ -127,37 +125,42 @@ export default function ProfilePage() {
         {/* 2. 현재 참여 중인 방 (기획 요소 반영) */}
         <div>
           <h3 className="mb-3 px-1 text-sm font-bold text-gray-500">My Active Room</h3>
-          {myRooms.length === 0 ? (
+          {myPods.length === 0 ? (
             <div className="rounded-2xl border border-dashed bg-white p-6 text-center text-sm font-semibold text-gray-500">
               No active rooms.
             </div>
           ) : (
             <div className="space-y-3">
-              {myRooms.map((r) => (
-                <div
-                  key={r.id}
-                  onClick={() => router.push(`/chat/${r.id}`)}
-                  className="flex cursor-pointer items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-5 shadow-sm transition-all hover:border-indigo-300 active:scale-95"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="rounded-full bg-indigo-600 p-2.5 text-white">
-                      <CarTaxiFront className="h-6 w-6" />
+              {myPods.map((r) => {
+                const timeStr = new Date(r.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = new Date(r.departure_time).toLocaleDateString([], { month: '2-digit', day: '2-digit' });
+
+                return (
+                  <div
+                    key={r.id}
+                    onClick={() => router.push(`/chat/${r.id}`)}
+                    className="flex cursor-pointer items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-5 shadow-sm transition-all hover:border-indigo-300 active:scale-95"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="rounded-full bg-indigo-600 p-2.5 text-white">
+                        <CarTaxiFront className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-indigo-600">
+                          {r.member_count}/{r.capacity} Members
+                        </p>
+                        <p className="text-base font-semibold text-gray-900">
+                          {r.origin} → {r.destination}
+                        </p>
+                        <p className="text-xs font-semibold text-gray-500">
+                          {dateStr} {timeStr}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-indigo-600">
-                        {r.currentPeople}/{r.maxPeople} Members
-                      </p>
-                      <p className="text-base font-semibold text-gray-900">
-                        {r.origin} → {r.destination}
-                      </p>
-                      <p className="text-xs font-semibold text-gray-500">
-                        {r.date} {r.time}
-                      </p>
-                    </div>
+                    <ChevronRight className="h-5 w-5 text-indigo-400" />
                   </div>
-                  <ChevronRight className="h-5 w-5 text-indigo-400" />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

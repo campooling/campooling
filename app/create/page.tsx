@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, MapPin, CalendarDays, Users, Clock, X } from 'lucide-react'; 
 import BottomNav from '../components/BottomNav';
+import { createClient } from '@/lib/supabase/client';
 
 // Mock Data: 험프리스 주변 거점
 const HumphreysLocations = [
@@ -119,7 +120,7 @@ export default function CreateRoomPage() {
   };
 
   // 최종 방 개설 처리
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
     if (!selectedDate || !origin || !destination || !hour || !minute || !maxPeople) {
       alert('Please fill out all fields.');
       return;
@@ -129,39 +130,49 @@ export default function CreateRoomPage() {
         return;
     }
 
-    const formattedTime = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
-
-    try {
-      const room = {
-        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-        createdAt: Date.now(),
-        creatorId: 'me',
-        date: selectedDate, // yyyy-mm-dd
-        time: formattedTime, // HH:mm
-        origin,
-        destination,
-        currentPeople: 1,
-        maxPeople,
-      };
-
-      const key = 'campoolingRooms';
-      const raw = localStorage.getItem(key);
-      const rooms = raw ? JSON.parse(raw) : [];
-      rooms.unshift(room);
-      localStorage.setItem(key, JSON.stringify(rooms));
-
-      // 만든 사람은 이미 참여 중으로 처리
-      const joinedKey = 'campoolingJoinedRooms';
-      const joinedRaw = localStorage.getItem(joinedKey);
-      const joined: string[] = joinedRaw ? JSON.parse(joinedRaw) : [];
-      if (!joined.includes(room.id)) joined.unshift(room.id);
-      localStorage.setItem(joinedKey, JSON.stringify(joined));
-    } catch {
-      // 로컬 저장 실패 시에도 UX는 유지
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      alert('You must be logged in to create a room.');
+      router.push('/');
+      return;
     }
 
-    alert(`Room created successfully! \nOn ${selectedDate} at ${formattedTime} \nFrom ${origin} to ${destination}`);
-    router.push('/feed');
+    const departureTime = new Date(`${selectedDate}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:00Z`).toISOString();
+
+    try {
+      // 1. Create the pod
+      const { data: pod, error: podError } = await supabase
+        .from('pods')
+        .insert({
+          creator_id: user.id,
+          origin,
+          destination,
+          departure_time: departureTime,
+          capacity: maxPeople,
+          status: 'active'
+        })
+        .select()
+        .single();
+
+      if (podError) throw podError;
+
+      // 2. Add creator to pod_members
+      const { error: memberError } = await supabase
+        .from('pod_members')
+        .insert({
+          pod_id: pod.id,
+          user_id: user.id
+        });
+
+      if (memberError) throw memberError;
+
+      alert('Room created successfully!');
+      router.push('/feed');
+    } catch (error: any) {
+      alert('Error creating room: ' + error.message);
+    }
   };
 
   // --- UI 컴포넌트 (장소 선택 모달) ---

@@ -1,131 +1,183 @@
-"use client";
+'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Send, LogOut } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr'; // Supabase 클라이언트 추가
+import { createClient } from '@/lib/supabase/client';
 
-type Room = {
+type Pod = {
   id: string;
-  createdAt: number;
-  creatorId?: string;
-  date: string;
-  time: string;
+  creator_id: string;
   origin: string;
   destination: string;
-  currentPeople: number;
-  maxPeople: number;
+  departure_time: string;
+  capacity: number;
+  status: string;
+  member_count?: number;
 };
 
-// 메시지 타입 정의
 type Message = {
-  id: number;
-  sender: string;
-  name?: string;
-  text: string;
-  time: string;
-  room_id?: string;
+  id: string;
+  pod_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  profiles?: {
+    nickname: string;
+  };
 };
-
-const ROOMS_KEY = 'campoolingRooms';
-const JOINED_KEY = 'campoolingJoinedRooms';
 
 export default function ChatRoomPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const roomId = params?.id ?? '';
-  
-  // Supabase 클라이언트 초기화
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createClient();
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
-  const [room, setRoom] = useState<Room | null>(null);
+  const [pod, setPod] = useState<Pod | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // 1. 방 정보 불러오기 (기존 로직 유지)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(ROOMS_KEY);
-      const rooms = raw ? (JSON.parse(raw) as Room[]) : [];
-      const found = Array.isArray(rooms) ? rooms.find((r) => r.id === roomId) : null;
-      setRoom(found ?? null);
-    } catch {
-      setRoom(null);
+  const fetchPodDetails = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id || null);
+
+    const { data: podData } = await supabase
+      .from('pods')
+      .select(`
+        *,
+        member_count:pod_members(count)
+      `)
+      .eq('id', roomId)
+      .single();
+
+    if (podData) {
+      setPod({
+        ...podData,
+        member_count: podData.member_count[0]?.count || 0
+      });
     }
-  }, [roomId]);
 
-  // 2. 실시간 메시지 구독 및 초기 메시지 로딩 (중요!)
+    const { data: messagesData } = await supabase
+      .from('messages')
+      .select(`
+        *,
+        profiles:user_id(nickname)
+      `)
+      .eq('pod_id', roomId)
+      .order('created_at', { ascending: true });
+
+    if (messagesData) {
+      setMessages(messagesData);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    if (!roomId) return;
+    fetchPodDetails();
 
-    // 초기 메시지 불러오기 (Supabase DB에서)
-    const fetchMessages = async () => {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('room_id', roomId)
-        .order('id', { ascending: true });
+    // Subscribe to new messages (빌드 에러를 막기 위해 payload: any 적용!)
+    const messageChannel = supabase
+      .channel(`room_${roomId}_messages`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages', 
+        filter: `pod_id=eq.${roomId}` 
+      }, async (payload: any) => { 
+        // Fetch profile for the new message
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('nickname')
+          .eq('id', payload.new.user_id)
+          .single();
+        
+        const newMessage = {
+          ...payload.new,
+          profiles: profileData
+        };
+        setMessages((prev) => [...prev, newMessage]);
+      })
+      .subscribe();
 
-      if (!error && data) {
-        setMessages(data);
-      }
-    };
-
-    fetchMessages();
-
-    // [핵심 수정] 실시간 구독 설정 - payload: any로 에러 해결
-    const channel = supabase
-      .channel(`chat-${roomId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
-        (payload: any) => { // 이 부분이 빌드 에러 해결 포인트입니다!
-          const newMessage = payload.new as Message;
-          setMessages((prev) => [...prev, newMessage]);
-        }
-      )
+    // Subscribe to pod updates (member count, status, etc.)
+    const podChannel = supabase
+      .channel(`room_${roomId}_updates`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'pods', 
+        filter: `id=eq.${roomId}` 
+      }, fetchPodDetails)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'pod_members', 
+        filter: `pod_id=eq.${roomId}` 
+      }, fetchPodDetails)
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(messageChannel);
+      supabase.removeChannel(podChannel);
     };
   }, [roomId, supabase]);
 
   const headerTitle = useMemo(() => {
-    if (!room) return 'Chat';
-    return `${room.origin} → ${room.destination}`;
-  }, [room]);
+    if (!pod) return 'Chat';
+    return `${pod.origin} → ${pod.destination}`;
+  }, [pod]);
 
   const headerMembers = useMemo(() => {
-    if (!room) return '';
-    return `${room.currentPeople}/${room.maxPeople} Members`;
-  }, [room]);
+    if (!pod) return '';
+    return `${pod.member_count}/${pod.capacity} Members`;
+  }, [pod]);
 
-  // 3. 메시지 전송 로직 (Supabase DB에 삽입)
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || !userId) return;
 
-    const newMessageData = {
-      room_id: roomId,
-      sender: 'me', // 나중에 유저 닉네임으로 교체 가능
-      name: 'Me',
-      text: inputText,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-    };
+    const content = inputText.trim();
+    setInputText('');
 
-    const { error } = await supabase.from('messages').insert([newMessageData]);
+    const { error } = await supabase
+      .from('messages')
+      .insert({
+        pod_id: roomId,
+        user_id: userId,
+        content: content
+      });
 
     if (error) {
-      console.error("Error sending message:", error.message);
-    } else {
-      setInputText('');
+      alert('Failed to send message: ' + error.message);
     }
   };
+
+  const handleLeavePod = async () => {
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('pod_members')
+      .delete()
+      .eq('pod_id', roomId)
+      .eq('user_id', userId);
+
+    if (error) {
+      alert('Failed to leave pod: ' + error.message);
+    } else {
+      router.push('/feed');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-white">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-gray-50 font-sans antialiased">
@@ -161,32 +213,27 @@ export default function ChatRoomPage() {
           </div>
         )}
         {messages.map((msg) => {
-          if (msg.sender === 'system') {
-            return (
-              <div key={msg.id} className="mx-auto my-2 rounded-full bg-gray-200 px-4 py-1.5 text-xs font-semibold text-gray-500">
-                {msg.text}
-              </div>
-            );
-          }
+          const isMe = msg.user_id === userId;
+          const timeStr = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-          if (msg.sender === 'me') {
+          if (isMe) {
             return (
               <div key={msg.id} className="flex flex-col items-end gap-1">
                 <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-2.5 text-white shadow-sm">
-                  <p className="text-base font-medium">{msg.text}</p>
+                  <p className="text-base font-medium">{msg.content}</p>
                 </div>
-                <span className="text-xs font-medium text-gray-400">{msg.time}</span>
+                <span className="text-xs font-medium text-gray-400">{timeStr}</span>
               </div>
             );
           }
 
           return (
             <div key={msg.id} className="flex flex-col items-start gap-1">
-              <span className="pl-1 text-xs font-semibold text-gray-500">{msg.name}</span>
+              <span className="pl-1 text-xs font-semibold text-gray-500">{msg.profiles?.nickname || 'User'}</span>
               <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-gray-100 bg-white px-4 py-2.5 text-gray-800 shadow-sm">
-                <p className="text-base font-medium">{msg.text}</p>
+                <p className="text-base font-medium">{msg.content}</p>
               </div>
-              <span className="text-xs font-medium text-gray-400">{msg.time}</span>
+              <span className="text-xs font-medium text-gray-400">{timeStr}</span>
             </div>
           );
         })}
@@ -212,15 +259,38 @@ export default function ChatRoomPage() {
         </form>
       </div>
 
-      {/* 나가기 오버레이 로직은 기존과 동일하므로 생략하거나 유지 */}
+      {/* 나가기 오버레이 */}
       {showLeaveConfirm && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-6">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-             {/* ...기존 Leave Confirm UI 유지... */}
-             <div className="mt-6 flex gap-3">
-               <button onClick={() => setShowLeaveConfirm(false)} className="flex-1 rounded-2xl border border-gray-200 bg-white py-3.5 text-base font-bold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95">Cancel</button>
-               <button onClick={() => router.push('/feed')} className="flex-1 rounded-2xl bg-red-600 py-3.5 text-base font-extrabold text-white shadow-lg active:scale-95">Leave</button>
-             </div>
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-xl">
+                ⚠️
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-extrabold tracking-tight text-gray-900">Leave this chat?</h2>
+                <p className="mt-1 text-sm font-medium text-gray-600">
+                  If you leave, you may lose access to this room.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(false)}
+                className="flex-1 rounded-2xl border border-gray-200 bg-white py-3.5 text-base font-bold text-gray-700 shadow-sm hover:border-purple-200 hover:bg-purple-50 active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleLeavePod}
+                className="flex-1 rounded-2xl bg-red-600 py-3.5 text-base font-extrabold text-white shadow-lg transition-all hover:bg-red-700 active:scale-95"
+              >
+                Leave
+              </button>
+            </div>
           </div>
         </div>
       )}

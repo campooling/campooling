@@ -2,39 +2,78 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  USER_PROFILE_KEY,
-  loadUserProfile,
-  type UserProfile,
-  type UserRole,
-} from "../../lib/userProfile";
+import { createClient } from "@/lib/supabase/client";
+import { type UserRole } from "../../lib/userProfile";
 
 export default function SignupPage() {
   const router = useRouter();
+  const supabase = createClient();
   const [nickname, setNickname] = useState("");
   const [role, setRole] = useState<UserRole>("KATUSA");
+  const [loading, setLoading] = useState(true);
+
+  const hasChecked = React.useRef(false);
 
   useEffect(() => {
-    if (loadUserProfile()) {
-      router.replace("/feed");
-    }
-  }, [router]);
+    const checkUser = async () => {
+      if (hasChecked.current) return;
+      hasChecked.current = true;
 
-  const handleSubmit = (e: React.FormEvent) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.nickname) {
+        router.replace("/feed");
+      } else {
+        setLoading(false);
+      }
+    };
+
+    checkUser();
+  }, [router, supabase]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = nickname.trim();
     if (!trimmed) {
       alert("Please enter a nickname.");
       return;
     }
-    try {
-      const profile: UserProfile = { nickname: trimmed, role };
-      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(profile));
-    } catch {
-      // ignore
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase.from("profiles").upsert({
+      id: user.id,
+      nickname: trimmed,
+      role: role,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      alert("Error saving profile: " + error.message);
+      return;
     }
+
     router.push("/feed");
   };
+
+  if (loading) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-white">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-dvh flex-col bg-white px-6 font-sans antialiased pb-[max(1rem,env(safe-area-inset-bottom))]">

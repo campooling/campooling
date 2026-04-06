@@ -2,125 +2,129 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import BottomNav from '../components/BottomNav';
+import { createClient } from '@/lib/supabase/client';
 
-type Room = {
+type Pod = {
   id: string;
-  createdAt: number;
-  creatorId?: string;
-  date: string; // yyyy-mm-dd
-  time: string; // HH:mm
+  creator_id: string;
   origin: string;
   destination: string;
-  currentPeople: number;
-  maxPeople: number;
+  departure_time: string;
+  capacity: number;
+  status: string;
+  created_at: string;
+  member_count?: number;
 };
 
-const ROOMS_KEY = 'campoolingRooms';
-const JOINED_KEY = 'campoolingJoinedRooms';
-
-function toDateTimeMs(room: Pick<Room, 'date' | 'time'>) {
-  const d = new Date(`${room.date}T${room.time}:00`);
-  return d.getTime();
-}
-
 function formatHeader(dateIso: string) {
-  const d = new Date(`${dateIso}T00:00:00`);
+  const d = new Date(dateIso);
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   return `${d.getMonth() + 1}/${d.getDate()} ${days[d.getDay()]}`;
 }
 
 export default function FeedPage() {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [joinedIds, setJoinedIds] = useState<Set<string>>(() => new Set());
-  const [now, setNow] = useState(() => Date.now());
+  const router = useRouter();
+  const supabase = createClient();
+  const [pods, setPods] = useState<Pod[]>([]);
+  const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(ROOMS_KEY);
-      const parsed = raw ? (JSON.parse(raw) as Room[]) : [];
-      setRooms(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setRooms([]);
+  const fetchPods = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id || null);
+
+    // Fetch active pods with member counts
+    const { data: podsData, error: podsError } = await supabase
+      .from('pods')
+      .select(`
+        *,
+        member_count:pod_members(count)
+      `)
+      .eq('status', 'active')
+      .order('departure_time', { ascending: true });
+
+    if (podsData) {
+      // Supabase count returns an array of objects like { count: 5 }
+      const formattedPods = podsData.map((p: any) => ({
+        ...p,
+        member_count: p.member_count[0]?.count || 0
+      }));
+      setPods(formattedPods);
     }
 
-    try {
-      const raw = localStorage.getItem(JOINED_KEY);
-      const parsed = raw ? (JSON.parse(raw) as string[]) : [];
-      setJoinedIds(new Set(Array.isArray(parsed) ? parsed : []));
-    } catch {
-      setJoinedIds(new Set());
-    }
-  }, []);
-
-  // "실시간" 제거: 분 단위로 현재시각 갱신해서 지난 방이 자동으로 사라지게 함
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const upcomingRooms = useMemo(() => {
-    const filtered = rooms.filter((r) => {
-      const ms = toDateTimeMs(r);
-      return Number.isFinite(ms) && ms > now;
-    });
-
-    // 저장소도 같이 정리(지나간 방은 제거)
-    if (filtered.length !== rooms.length) {
-      try {
-        localStorage.setItem(ROOMS_KEY, JSON.stringify(filtered));
-      } catch {
-        // ignore
+    if (user) {
+      // Fetch pods joined by the user
+      const { data: joinedData } = await supabase
+        .from('pod_members')
+        .select('pod_id')
+        .eq('user_id', user.id);
+      
+      if (joinedData) {
+        setJoinedIds(new Set(joinedData.map(j => j.pod_id)));
       }
     }
+    setLoading(false);
+  };
 
-    return filtered.sort((a, b) => toDateTimeMs(a) - toDateTimeMs(b));
-  }, [rooms, now]);
+  useEffect(() => {
+    fetchPods();
 
-  const roomsByDate = useMemo(() => {
-    const map = new Map<string, Room[]>();
-    for (const r of upcomingRooms) {
-      const arr = map.get(r.date) ?? [];
-      arr.push(r);
-      map.set(r.date, arr);
+    // Set up real-time subscription for pod updates
+    const channel = supabase
+      .channel('pod_feed_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pods' }, fetchPods)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pod_members' }, fetchPods)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase]);
+
+  const podsByDate = useMemo(() => {
+    const map = new Map<string, Pod[]>();
+    for (const p of pods) {
+      const dateKey = p.departure_time.split('T')[0];
+      const arr = map.get(dateKey) ?? [];
+      arr.push(p);
+      map.set(dateKey, arr);
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [upcomingRooms]);
+  }, [pods]);
 
-  const handleJoin = (id: string) => {
-    setRooms((prev) => {
-      const next = prev.map((r) => {
-        if (r.id !== id) return r;
-        const isPast = toDateTimeMs(r) <= Date.now();
-        if (isPast) return r;
-        if (r.creatorId === 'me') return r;
-        if (joinedIds.has(id)) return r;
-        if (r.currentPeople >= r.maxPeople) return r;
-        return { ...r, currentPeople: r.currentPeople + 1 };
+  const handleJoin = async (podId: string) => {
+    if (!userId) {
+      router.push('/');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('pod_members')
+      .insert({
+        pod_id: podId,
+        user_id: userId
       });
-      try {
-        localStorage.setItem(ROOMS_KEY, JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
 
-    setJoinedIds((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      try {
-        localStorage.setItem(JOINED_KEY, JSON.stringify(Array.from(next)));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
+    if (error) {
+      alert('Failed to join: ' + error.message);
+    } else {
+      fetchPods();
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-white">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-gray-50 font-sans antialiased pb-24">
-      {/* 상단 헤더: 대문 로고와 동일한 스타일 적용 */}
       <header className="flex items-center justify-between border-b bg-white px-6 py-4 shadow-sm antialiased">
         <h1 className="flex items-center text-2xl font-extrabold tracking-tight">
           <span className="text-black">Ca</span>
@@ -133,50 +137,51 @@ export default function FeedPage() {
         </h1>
       </header>
 
-      {/* 피드 리스트 영역 */}
       <main className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 py-6 antialiased">
-        {roomsByDate.length === 0 ? (
+        {podsByDate.length === 0 ? (
           <div className="mt-6 rounded-2xl border border-dashed bg-white px-6 py-10 text-center text-sm font-semibold text-gray-500">
             No upcoming rooms.
           </div>
         ) : (
-          roomsByDate.map(([date, list], idx) => (
+          podsByDate.map(([date, list], idx) => (
             <div key={date} className={idx === 0 ? '' : 'mt-1'}>
               <div className="border-t pt-4 mt-2">
                 <p className="text-sm font-medium text-gray-500">{formatHeader(date)}</p>
               </div>
 
               {list.map((pod) => {
-                const isFull = pod.currentPeople >= pod.maxPeople;
+                const currentPeople = pod.member_count || 0;
+                const isFull = currentPeople >= pod.capacity;
                 const isJoined = joinedIds.has(pod.id);
-                const isOwner = pod.creatorId === 'me';
+                const isOwner = pod.creator_id === userId;
                 const joinDisabled = isFull || isJoined || isOwner;
+                const timeStr = new Date(pod.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
                 return (
                   <div
                     key={pod.id}
                     role="button"
                     tabIndex={0}
                     onClick={() => {
-                      // 회색/비활성화 상태여도 채팅방은 입장 가능
-                      window.location.href = `/chat/${pod.id}`;
+                      router.push(`/chat/${pod.id}`);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
-                        window.location.href = `/chat/${pod.id}`;
+                        router.push(`/chat/${pod.id}`);
                       }
                     }}
                     className="mt-5 rounded-2xl border bg-white px-5 py-4 shadow-sm antialiased hover:border-purple-300 active:scale-[0.99] cursor-pointer"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 space-y-2">
-                        <p className="text-lg font-bold text-gray-900">{pod.time}</p>
+                        <p className="text-lg font-bold text-gray-900">{timeStr}</p>
                         <p className="text-sm font-medium text-gray-700">
                           {pod.origin} → {pod.destination}
                         </p>
                       </div>
                       <div className="flex flex-col items-center gap-1 rounded-full bg-gray-100 px-3 py-1.5 antialiased">
                         <span className={`text-xl font-bold ${isFull ? 'text-gray-400' : 'text-indigo-600'}`}>
-                          {pod.currentPeople}/{pod.maxPeople}
+                          {currentPeople}/{pod.capacity}
                         </span>
                         <span className="text-xs font-semibold text-gray-500">Seats</span>
                       </div>
@@ -193,7 +198,7 @@ export default function FeedPage() {
                         }`}
                         disabled={joinDisabled}
                       >
-                        {isOwner ? 'Joined' : isJoined ? 'Joined' : isFull ? 'Full' : 'Join'}
+                        {isOwner ? 'My Pod' : isJoined ? 'Joined' : isFull ? 'Full' : 'Join'}
                       </button>
                     </div>
                   </div>
