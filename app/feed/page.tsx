@@ -63,7 +63,7 @@ export default function FeedPage() {
         .eq('user_id', user.id);
       
       if (joinedData) {
-        setJoinedIds(new Set(joinedData.map(j => j.pod_id)));
+        setJoinedIds(new Set(joinedData.map((j: any) => j.pod_id)));
       }
     }
     setLoading(false);
