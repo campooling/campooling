@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, MapPin, CalendarDays, Users, Clock, X } from 'lucide-react'; 
+import { MapPin, CalendarDays, Users, Clock, X } from 'lucide-react'; 
 import BottomNav from '../components/BottomNav';
 import { createClient } from '@/lib/supabase/client';
 
@@ -218,15 +218,8 @@ export default function CreateRoomPage() {
   return (
     <div className="flex h-dvh flex-col bg-gray-50 font-sans antialiased pb-24 relative overflow-x-hidden">
       
-      {/* 1. 상단 헤더: 뒤로가기 버튼 + 제목 */}
-      <header className="flex shrink-0 items-center gap-4 border-b bg-white px-6 py-4 shadow-sm antialiased sticky top-0 z-50">
-        <button onClick={() => router.back()} className="text-gray-600 hover:text-indigo-600 active:scale-95 antialiased">
-          <ArrowLeft className="h-6 w-6" />
-        </button>
-      </header>
-
       {/* 방 개설 폼 입력 영역 */}
-      <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-8 antialiased">
+      <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-6 antialiased">
         
         {/* === 2. 출발지/도착지 설정 (사진 2 참조: 노선도형 UI) === */}
         <div className="space-y-2.5">
@@ -278,7 +271,7 @@ export default function CreateRoomPage() {
             Date
           </label>
           {/* 가로 스크롤 영역 */}
-          <div className="flex gap-3 overflow-x-auto pb-1 antialiased -mx-6 px-6 scrollbar-hide">
+          <div className="flex gap-3 overflow-x-auto pb-1 antialiased -mx-6 px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {availableDates.map((date) => {
               const isActive = selectedDate === date.fullDate;
               return (

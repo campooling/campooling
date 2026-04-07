@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Send, Menu } from 'lucide-react';
+import { ArrowLeft, Send, Menu, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 type Pod = {
@@ -38,6 +38,8 @@ export default function ChatRoomPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const messagesContainerRef = useRef<HTMLElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const didInitialScrollRef = useRef(false);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -163,9 +165,20 @@ export default function ChatRoomPage() {
   }, [roomId, supabase]);
 
   useEffect(() => {
-    if (!messagesContainerRef.current) return;
-    messagesContainerRef.current.scrollTo({
-      top: messagesContainerRef.current.scrollHeight,
+    const el = messagesContainerRef.current;
+    if (!el) return;
+
+    if (!didInitialScrollRef.current) {
+      el.scrollTop = el.scrollHeight;
+      didInitialScrollRef.current = true;
+      shouldAutoScrollRef.current = true;
+      return;
+    }
+
+    if (!shouldAutoScrollRef.current) return;
+
+    el.scrollTo({
+      top: el.scrollHeight,
       behavior: 'smooth',
     });
   }, [messages.length]);
@@ -281,7 +294,15 @@ export default function ChatRoomPage() {
       </header>
 
       {/* 대화 내역 */}
-      <main ref={messagesContainerRef} className="flex min-h-0 flex-1 flex-col justify-end gap-4 overflow-y-auto p-6">
+      <main
+        ref={messagesContainerRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+          shouldAutoScrollRef.current = distanceFromBottom < 80;
+        }}
+        className="flex min-h-0 flex-1 flex-col justify-end gap-4 overflow-y-auto p-6"
+      >
         {messages.length === 0 && (
           <div className="mx-auto my-2 rounded-full bg-gray-200 px-4 py-1.5 text-xs font-semibold text-gray-500">
             No messages yet. Start the conversation!
@@ -380,8 +401,9 @@ export default function ChatRoomPage() {
                 type="button"
                 onClick={() => setShowMenu(false)}
                 className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95"
+                aria-label="Close menu"
               >
-                Close
+                <X className="h-4 w-4" />
               </button>
             </div>
 
@@ -432,8 +454,9 @@ export default function ChatRoomPage() {
                 type="button"
                 onClick={() => setSelectedMember(null)}
                 className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95"
+                aria-label="Close profile"
               >
-                Close
+                <X className="h-4 w-4" />
               </button>
             </div>
             <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-5">
