@@ -115,7 +115,7 @@ export default function ProfilePage() {
             <div className="space-y-3">
               {myPods.map((r) => {
                 const timeStr = new Date(r.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-                const dateStr = new Date(r.departure_time).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' });
+                const dateStr = new Date(r.departure_time).toLocaleDateString('en-US', { day: '2-digit', month: 'long' });
 
                 return (
                   <div
