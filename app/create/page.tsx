@@ -73,13 +73,11 @@ export default function CreateRoomPage() {
     const originCustom = sessionStorage.getItem('customLocationOrigin');
     if (originCustom) {
       setOrigin(originCustom);
-      sessionStorage.removeItem('customLocationOrigin');
     }
 
     const destinationCustom = sessionStorage.getItem('customLocationDestination');
     if (destinationCustom) {
       setDestination(destinationCustom);
-      sessionStorage.removeItem('customLocationDestination');
     }
   }, []);
 
@@ -111,6 +109,8 @@ export default function CreateRoomPage() {
   // 장소 선택 처리
   const handleLocationSelect = (location: string) => {
     if (location === 'Other' && activeLocationModal) {
+      if (origin) sessionStorage.setItem('customLocationOrigin', origin);
+      if (destination) sessionStorage.setItem('customLocationDestination', destination);
       router.push(`/create/other-location?type=${activeLocationModal}`);
       setActiveLocationModal(null);
       return;

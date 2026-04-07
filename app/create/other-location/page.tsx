@@ -21,10 +21,18 @@ function getLocationValidationError(input: string): string | null {
   // 의미 없는 반복 문자열(예: aaaa) 금지
   if (/([a-zA-Z])\1{3,}/.test(value)) return "please write right location.";
 
+  // 건물번호(예: P2045, S12350)는 허용
+  if (/^[A-Za-z]{1,2}\d{3,6}$/.test(value)) return null;
+
   // 위치명으로 보기 어려운 과도한 기호/숫자 비율 방지
   const cleaned = value.replace(/\s+/g, "");
   const alphaCount = (cleaned.match(/[a-zA-Z]/g) || []).length;
   if (alphaCount < Math.ceil(cleaned.length * 0.5)) return "please write right location.";
+
+  // 위치와 무관한 단어 차단 (요청사항: 예시 Mom)
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const unrelatedWordRegex = /^(mom|mother|dad|father|baby|love|honey|hello|hi)$/i;
+  if (unrelatedWordRegex.test(normalized)) return "please write right location.";
 
   return null;
 }
@@ -40,7 +48,10 @@ function OtherLocationInner() {
     return "customLocation";
   }, [type]);
 
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return sessionStorage.getItem(storageKey) ?? "";
+  });
   const [errorMessage, setErrorMessage] = useState("");
 
   const validateValue = (nextValue: string) => {
