@@ -1,30 +1,10 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
 import { createClient } from '@/lib/supabase/client';
-
-type Room = {
-  id: string;
-  createdAt: number;
-  creatorId?: string;
-  date: string; // yyyy-mm-dd
-  time: string; // HH:mm
-  origin: string;
-  destination: string;
-  currentPeople: number;
-  maxPeople: number;
-};
-
-const ROOMS_KEY = 'campoolingRooms';
-const JOINED_KEY = 'campoolingJoinedRooms';
-
-function toDateTimeMs(room: Pick<Room, 'date' | 'time'>) {
-  const d = new Date(`${room.date}T${room.time}:00`);
-  return d.getTime();
-}
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -108,12 +88,7 @@ export default function ProfilePage() {
 
   return (
     <div className="flex h-dvh flex-col bg-gray-50 font-sans antialiased pb-24">
-      {/* 상단 헤더 */}
-      <header className="flex items-center justify-between border-b bg-white px-6 py-4 shadow-sm">
-        <h1 className="text-xl font-bold tracking-tight text-gray-900">Profile</h1>
-      </header>
-
-      <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-8">
+      <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
         
         {/* 1. 유저 정보 카드 */}
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -132,7 +107,6 @@ export default function ProfilePage() {
 
         {/* 2. 현재 참여 중인 방 (기획 요소 반영) */}
         <div>
-          <h3 className="mb-3 px-1 text-sm font-bold text-gray-500">My Active Room</h3>
           {myPods.length === 0 ? (
             <div className="rounded-2xl border border-dashed bg-white p-6 text-center text-sm font-semibold text-gray-500">
               No active rooms.

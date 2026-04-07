@@ -18,10 +18,13 @@ const HumphreysLocations = [
 // 날짜 형식 지정 유틸리티 (월 11, 화 12 등)
 const getFormattedDate = (date: Date) => {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return {
     dayName: days[date.getDay()],
     dayOfMonth: date.getDate(),
-    fullDate: date.toISOString().split('T')[0], // yyyy-mm-dd
+    fullDate: `${year}-${month}-${day}`, // yyyy-mm-dd (local)
   };
 };
 
@@ -140,7 +143,9 @@ export default function CreateRoomPage() {
       return;
     }
 
-    const departureTime = new Date(`${selectedDate}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:00Z`).toISOString();
+    const departureTime = new Date(
+      `${selectedDate}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:00`
+    ).toISOString();
 
     try {
       // 1. Create the pod
@@ -218,7 +223,6 @@ export default function CreateRoomPage() {
         <button onClick={() => router.back()} className="text-gray-600 hover:text-indigo-600 active:scale-95 antialiased">
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <h1 className="text-xl font-bold tracking-tight text-gray-900">Create New Room</h1>
       </header>
 
       {/* 방 개설 폼 입력 영역 */}
@@ -271,7 +275,7 @@ export default function CreateRoomPage() {
         <div className="space-y-2.5">
           <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 pl-1">
             <CalendarDays className="h-4 w-4 text-indigo-500" />
-            Departure date
+            Date
           </label>
           {/* 가로 스크롤 영역 */}
           <div className="flex gap-3 overflow-x-auto pb-1 antialiased -mx-6 px-6 scrollbar-hide">

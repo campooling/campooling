@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Send, LogOut, Menu } from 'lucide-react';
+import { ArrowLeft, Send, Menu } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 type Pod = {
@@ -16,15 +16,10 @@ type Pod = {
   member_count?: number;
 };
 
-type Message = {
+type Member = {
   id: string;
-  pod_id: string;
-  user_id: string;
-  content: string;
-  created_at: string;
-  profiles?: {
-    nickname: string;
-  };
+  nickname: string;
+  role?: string | null;
 };
 
 export default function ChatRoomPage() {
@@ -40,7 +35,9 @@ export default function ChatRoomPage() {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [members, setMembers] = useState<{ id: string; nickname: string }[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const messagesContainerRef = useRef<HTMLElement | null>(null);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -77,6 +74,11 @@ export default function ChatRoomPage() {
         ...podData,
         member_count: podData.member_count[0]?.count || 0
       });
+      if ((podData.member_count[0]?.count || 0) <= 0) {
+        await supabase.from('pods').delete().eq('id', roomId);
+        router.replace('/feed');
+        return;
+      }
     }
 
     const { data: messagesData } = await supabase
@@ -94,7 +96,7 @@ export default function ChatRoomPage() {
 
     const { data: memberRows } = await supabase
       .from('pod_members')
-      .select('user_id, profiles:user_id(nickname)')
+      .select('user_id, profiles:user_id(nickname, role)')
       .eq('pod_id', roomId);
 
     if (memberRows) {
@@ -102,6 +104,7 @@ export default function ChatRoomPage() {
         memberRows.map((m: any) => ({
           id: m.user_id,
           nickname: m.profiles?.nickname || 'User',
+          role: m.profiles?.role || null,
         }))
       );
     }
@@ -158,6 +161,14 @@ export default function ChatRoomPage() {
       supabase.removeChannel(podChannel);
     };
   }, [roomId, supabase]);
+
+  useEffect(() => {
+    if (!messagesContainerRef.current) return;
+    messagesContainerRef.current.scrollTo({
+      top: messagesContainerRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [messages.length]);
 
   const headerTitle = useMemo(() => {
     if (!pod) return 'Chat';
@@ -270,7 +281,7 @@ export default function ChatRoomPage() {
       </header>
 
       {/* 대화 내역 */}
-      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
+      <main ref={messagesContainerRef} className="flex min-h-0 flex-1 flex-col justify-end gap-4 overflow-y-auto p-6">
         {messages.length === 0 && (
           <div className="mx-auto my-2 rounded-full bg-gray-200 px-4 py-1.5 text-xs font-semibold text-gray-500">
             No messages yet. Start the conversation!
@@ -376,13 +387,15 @@ export default function ChatRoomPage() {
 
             <div className="mt-4 flex -space-x-3">
               {members.slice(0, 10).map((m) => (
-                <div
+                <button
                   key={m.id}
-                  className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-indigo-100 text-sm font-extrabold text-indigo-700"
+                  type="button"
+                  onClick={() => setSelectedMember(m)}
+                  className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-indigo-100 text-sm font-extrabold text-indigo-700 transition-transform active:scale-95"
                   title={m.nickname}
                 >
                   {(m.nickname?.trim()?.[0] || 'U').toUpperCase()}
-                </div>
+                </button>
               ))}
             </div>
 
@@ -406,6 +419,30 @@ export default function ChatRoomPage() {
             >
               Leave
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedMember ? (
+        <div className="fixed inset-0 z-[210] flex items-end bg-black/40" onClick={() => setSelectedMember(null)}>
+          <div className="w-full rounded-t-3xl bg-white px-6 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-extrabold tracking-tight text-gray-900">Profile</h2>
+              <button
+                type="button"
+                onClick={() => setSelectedMember(null)}
+                className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-5">
+              <p className="text-lg font-extrabold text-gray-900">{selectedMember.nickname}</p>
+              <p className="mt-1 text-sm font-semibold text-gray-600">
+                {selectedMember.role === 'USA_ARMY' ? 'U.S. Army' : 'KATUSA'}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-500">Camp Humphreys</p>
+            </div>
           </div>
         </div>
       ) : null}

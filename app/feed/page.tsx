@@ -19,7 +19,7 @@ type Pod = {
 };
 
 function formatHeader(dateIso: string) {
-  const d = new Date(`${dateIso}T00:00:00`);
+  const d = new Date(`${dateIso}T12:00:00`);
   const months = [
     'January','February','March','April','May','June',
     'July','August','September','October','November','December'
@@ -57,6 +57,16 @@ export default function FeedPage() {
         ...p,
         member_count: p.member_count[0]?.count || 0
       }));
+      const emptyRoomIds = formattedPods
+        .filter((p: any) => (p.member_count || 0) <= 0)
+        .map((p: any) => p.id);
+      if (emptyRoomIds.length > 0) {
+        try {
+          await supabase.from('pods').delete().in('id', emptyRoomIds);
+        } catch {
+          // ignore
+        }
+      }
       // 6시간 지난 방은 status를 만료로 바꿔서 피드에서 제거
       const expiredIds = formattedPods
         .filter((p: any) => {
@@ -75,6 +85,7 @@ export default function FeedPage() {
       // 화면 표시는 6시간 지난 방 제외
       setPods(
         formattedPods.filter((p: any) => {
+          if ((p.member_count || 0) <= 0) return false;
           const ms = new Date(p.departure_time).getTime();
           return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > Date.now();
         })
@@ -119,7 +130,11 @@ export default function FeedPage() {
   const podsByDate = useMemo(() => {
     const map = new Map<string, Pod[]>();
     for (const p of pods) {
-      const dateKey = p.departure_time.split('T')[0];
+      const d = new Date(p.departure_time);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${y}-${m}-${day}`;
       const arr = map.get(dateKey) ?? [];
       arr.push(p);
       map.set(dateKey, arr);
