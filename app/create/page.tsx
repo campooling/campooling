@@ -322,7 +322,8 @@ export default function CreateRoomPage() {
                 onClick={() => {
                     const now = new Date();
                     setHour(String(now.getHours()).padStart(2, '0'));
-                    setMinute(String(Math.ceil(now.getMinutes()/5)*5).padStart(2, '0')); // 5분 단위 반올림
+                    const roundedMinute = Math.ceil(now.getMinutes() / 5) * 5;
+                    setMinute(String(Math.min(59, roundedMinute)).padStart(2, '0')); // 최대 59분
                 }}
                 className="ml-auto text-sm font-bold text-gray-500 bg-gray-100 rounded-full px-4 py-2 hover:bg-gray-200"
             >
