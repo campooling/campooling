@@ -196,7 +196,7 @@ export default function CreateRoomPage() {
         </header>
         <main className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
           {HumphreysLocations.map((loc) => {
-            const isDisabled = loc === otherLocation;
+            const isDisabled = loc !== 'Other' && loc === otherLocation;
             return (
                 <button 
                   key={loc}

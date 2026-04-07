@@ -3,6 +3,32 @@
 import React, { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+function getLocationValidationError(input: string): string | null {
+  const value = input.trim();
+  if (!value) return "please write right location.";
+
+  const hasKorean = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(value);
+  if (hasKorean) return "please write with English.";
+
+  // 영어 비속어(공백/특수문자 섞어쓰기 우회 포함)
+  const profanityRegex =
+    /f[^a-zA-Z0-9]*u[^a-zA-Z0-9]*c[^a-zA-Z0-9]*k|s[^a-zA-Z0-9]*e[^a-zA-Z0-9]*x|b[^a-zA-Z0-9]*i[^a-zA-Z0-9]*t[^a-zA-Z0-9]*c[^a-zA-Z0-9]*h|s[^a-zA-Z0-9]*h[^a-zA-Z0-9]*i[^a-zA-Z0-9]*t|a[^a-zA-Z0-9]*s[^a-zA-Z0-9]*s/i;
+  if (profanityRegex.test(value)) return "please write right location.";
+
+  // 연속 특수문자 금지
+  if (/[^a-zA-Z0-9\s]{2,}/.test(value)) return "please write right location.";
+
+  // 의미 없는 반복 문자열(예: aaaa) 금지
+  if (/([a-zA-Z])\1{3,}/.test(value)) return "please write right location.";
+
+  // 위치명으로 보기 어려운 과도한 기호/숫자 비율 방지
+  const cleaned = value.replace(/\s+/g, "");
+  const alphaCount = (cleaned.match(/[a-zA-Z]/g) || []).length;
+  if (alphaCount < Math.ceil(cleaned.length * 0.5)) return "please write right location.";
+
+  return null;
+}
+
 function OtherLocationInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -15,6 +41,13 @@ function OtherLocationInner() {
   }, [type]);
 
   const [value, setValue] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const validateValue = (nextValue: string) => {
+    const error = getLocationValidationError(nextValue);
+    setErrorMessage(error ?? "");
+    return !error;
+  };
 
   return (
     <div className="flex h-dvh flex-col bg-white font-sans antialiased">
@@ -35,11 +68,21 @@ function OtherLocationInner() {
         </label>
         <input
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setValue(next);
+            if (errorMessage) validateValue(next);
+          }}
+          onBlur={(e) => {
+            validateValue(e.target.value);
+          }}
           placeholder="Type here..."
-          className="mt-3 w-full rounded-2xl border border-gray-200 bg-white px-5 py-4 text-base font-semibold text-gray-900 shadow-sm outline-none focus:border-indigo-500"
+          className={`mt-3 w-full rounded-2xl border bg-white px-5 py-4 text-base font-semibold text-gray-900 shadow-sm outline-none focus:border-indigo-500 ${errorMessage ? "border-red-400" : "border-gray-200"}`}
           autoFocus
         />
+        {errorMessage ? (
+          <p className="mt-2 pl-1 text-xs font-semibold text-red-500">{errorMessage}</p>
+        ) : null}
 
         <div className="mt-6 flex gap-3">
           <button
@@ -55,6 +98,11 @@ function OtherLocationInner() {
             onClick={() => {
               const v = value.trim();
               if (!v) return;
+              const isValid = validateValue(v);
+              if (!isValid) {
+                alert("Invalid location text.");
+                return;
+              }
               sessionStorage.setItem(storageKey, v);
               router.push("/create");
             }}
