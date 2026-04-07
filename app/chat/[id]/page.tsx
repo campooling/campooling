@@ -424,7 +424,7 @@ export default function ChatRoomPage() {
             <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4">
               <p className="text-xs font-semibold text-gray-500">Departure</p>
               <p className="mt-1 text-base font-extrabold text-gray-900">
-                {pod ? new Date(pod.departure_time).toLocaleString('en-US', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'}
+                {pod ? new Date(pod.departure_time).toLocaleString('en-US', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'}
               </p>
               {isClosed ? (
                 <p className="mt-1 text-xs font-semibold text-red-600">Closed (15+ min after time)</p>
