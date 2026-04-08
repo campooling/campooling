@@ -1,11 +1,12 @@
 # Campooling (Carnpooling) Project Overview
 
-Campooling is a specialized carpooling and taxi-sharing application designed for commuters, particularly focused on military base environments like Camp Humphreys. The app allows users to find, create, and join "pods" (sharing sessions) to split fares and share rides between key locations.
+Campooling is a specialized carpooling and taxi-sharing application designed for commuters, specifically optimized for military base environments like Camp Humphreys. The app allows users to create and join "pods" (ride-sharing sessions) to split fares and share rides between key locations.
 
 ## Tech Stack
 
-- **Framework:** [Next.js 16/19](https://nextjs.org/) (App Router)
+- **Framework:** [Next.js 16/19](https://nextjs.org/) (App Router, Turbopack)
 - **Library:** [React 19](https://react.dev/)
+- **Backend/Auth:** [Supabase](https://supabase.com/) (PostgreSQL + Realtime + Google OAuth)
 - **Language:** [TypeScript](https://www.typescriptlang.org/)
 - **Styling:** [Tailwind CSS 4](https://tailwindcss.com/)
 - **Icons:** [Lucide React](https://lucide.dev/)
@@ -16,46 +17,54 @@ Campooling is a specialized carpooling and taxi-sharing application designed for
 ```text
 /home/mooncreat/projects/campooling/
 ├── app/                  # Next.js App Router directory
-│   ├── chat/[id]/        # Dynamic chat room for each pod
-│   ├── components/       # Shared UI components (e.g., BottomNav)
+│   ├── auth/callback/    # Server-side Google OAuth handler
+│   ├── chat/[id]/        # Real-time WebSocket chat room
+│   ├── components/       # Shared UI (BottomNav, etc.)
 │   ├── create/           # Pod creation workflow
-│   ├── feed/             # Main feed of available pods
-│   ├── profile/          # User profile and active room status
-│   ├── signup/           # User signup and profile creation
-│   ├── globals.css       # Global styles and Tailwind imports
-│   ├── layout.tsx        # Root layout with font and metadata configuration
-│   └── page.tsx          # Onboarding / Landing page (Google Login mock)
-├── lib/                  # Shared utilities and helpers
-│   └── userProfile.ts    # User profile data model and local storage logic
-├── public/               # Static assets (SVGs, favicon)
-├── tsconfig.json         # TypeScript configuration (path alias: @/* -> ./*)
-├── package.json          # Dependencies and scripts
-└── postcss.config.mjs    # PostCSS configuration for Tailwind CSS 4
+│   │   └── other-location/ # Manual location input UI
+│   ├── feed/             # Main pod list (real-time SQL query)
+│   ├── profile/          # User profile & joined active pods
+│   ├── signup/           # User onboarding & profile record setup
+│   ├── globals.css       # Tailwind 4 & global styles
+│   ├── layout.tsx        # Root layout (Geist font, metadata)
+│   └── page.tsx          # Landing page (Google Login trigger)
+├── lib/                  # Shared utilities
+│   ├── supabase/         # Supabase clients (client, server, middleware-helper)
+│   └── userProfile.ts    # Legacy types & helper functions
+├── proxy.ts              # Next.js 16 Proxy (Route protection/Session refresh)
+├── supabase_schema.sql   # SQL schema for profiles, pods, members, and messages
+├── package.json          # Deps & scripts (NODE_OPTIONS memory limit)
+├── next.config.ts        # Next.js configuration
+└── tsconfig.json         # TypeScript config (path alias: @/* -> ./*)
 ```
 
 ## Key Commands
 
 | Command | Description |
 | :--- | :--- |
-| `npm run dev` | Starts the development server on `localhost:3000` |
+| `npm run dev` | Starts dev server (Turbopack + 8GB memory limit) |
 | `npm run build` | Compiles the application for production |
-| `npm run start` | Runs the built application in production mode |
-| `npm run lint` | Executes ESLint to check for code quality issues |
+| `npm run start` | Runs the production build |
+| `npm run lint` | Executes ESLint for code quality checks |
 
 ## Development Conventions
 
-- **Mobile-First Design:** The UI is optimized for mobile devices with a persistent `BottomNav` and responsive layouts.
-- **Styling:** Use Tailwind CSS 4 utility classes for all styling. Avoid custom CSS unless necessary (manage via `globals.css`).
-- **Icons:** Use `lucide-react` for consistent iconography.
-- **Mock Data:** Currently, the app uses mock data for pods and some locations. User profile state (nickname, role) is managed via `localStorage`. Backend integration (e.g., real Google Auth, database) remains a TODO.
-- **Type Safety:** Maintain strict TypeScript definitions for all props and state.
-- **Path Aliases:** Use `@/` to reference the project root (e.g., `import BottomNav from '@/app/components/BottomNav'`).
-- **Interactive Pages:** Use the `"use client"` directive at the top of files that require React hooks or client-side interactivity.
+- **Mobile-First Design:** UI is optimized for mobile with a persistent `BottomNav` and responsive layouts.
+- **Backend Architecture:** All persistent state (Auth, Pods, Messages) is managed via Supabase SQL. No data is stored in `localStorage` for primary app state.
+- **Real-time:** The app uses Supabase Realtime (WebSockets) for the Chat and the Feed to ensure instant updates.
+- **Route Protection:** Handled via `proxy.ts`. Unauthenticated users are redirected to `/`, and users without profiles are guided to `/signup`.
+- **Database Logic:** 
+    - `profiles`: Linked to `auth.users` via UUID.
+    - `pods`: Ride sessions with `status` (active/full/completed).
+    - `pod_members`: Junction table for pod participants.
+    - `messages`: Chat logs linked to pods and users.
+- **Automatic Cleanup:** (Planned/Trigger-based) Deleting empty pods when the last member leaves via PostgreSQL triggers.
 
 ## Core Features
 
-1.  **Onboarding & Signup:** A clean entry point with stylized branding and a mock Google Login, leading to a signup flow to define the user's nickname and role (KATUSA or U.S. Army).
-2.  **Pod Feed:** Categorized list of available ride-sharing sessions with status indicators (Active/Full).
-3.  **Pod Creation:** A step-by-step UI for selecting routes (origin/destination, including a custom/other location option), dates (next 7 days), times, and capacity.
-4.  **Profile & Active Session:** Quick access to user information and the currently joined pod's chat/details.
-5.  **Chatting:** Real-time communication within joined pods to coordinate pick-ups and ride details.
+1.  **Google Authentication:** Secure login via Google Cloud OAuth 2.0.
+2.  **User Onboarding:** Cleanup flow to define nicknames and roles (KATUSA/USA_ARMY).
+3.  **Dynamic Feed:** Real-time categorized list of available pods with live seat counts.
+4.  **Pod Creation:** Integrated workflow with support for preset military base locations or custom "Other" locations.
+5.  **Instant Coordination:** Real-time chat for joined pod members to organize pick-ups.
+6.  **Profile Management:** Access to personal settings and active joined ride sessions.
