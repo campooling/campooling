@@ -16,13 +16,13 @@ const geistMono = Geist_Mono({
 
 // 프로젝트 성격에 맞춰 메타데이터를 미리 수정해두면 SEO와 공유 시 유리합니다.
 export const metadata: Metadata = {
-  title: "캠풀링 (Campooling)",
+  title: "Campooling",
   description: "군장병을 위한 스마트한 카풀 서비스",
   manifest: "/manifest.json",
-  applicationName: "캠풀링",
+  applicationName: "Campooling",
   appleWebApp: {
     capable: true,
-    title: "캠풀링",
+    title: "Campooling",
     statusBarStyle: "default",
   },
   icons: {

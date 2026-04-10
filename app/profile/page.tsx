@@ -166,19 +166,7 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* 3. 메뉴 리스트 (미니멀) */}
-        <div className="mt-4 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <button className="flex w-full items-center justify-between border-b border-gray-100 px-6 py-4 text-left transition-colors hover:bg-gray-50">
-            <span className="font-semibold text-gray-700">Payment Methods</span>
-            <ChevronRight className="h-5 w-5 text-gray-400" />
-          </button>
-          <button className="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-gray-50">
-            <span className="font-semibold text-gray-700">Ride History</span>
-            <ChevronRight className="h-5 w-5 text-gray-400" />
-          </button>
-        </div>
-
-        {/* 4. 로그아웃 버튼 */}
+        {/* 3. 로그아웃 버튼 */}
         <button 
           onClick={handleLogout}
           className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-100 bg-red-50 py-4 font-bold text-red-600 transition-colors hover:bg-red-100 active:scale-95"
