@@ -12,6 +12,8 @@ interface BeforeInstallPromptEvent extends Event {
 const DISMISS_KEY = "installPromptDismissed";
 const SIGNUP_COMPLETED_KEY = "signup_completed";
 const USER_TYPE_KEY = "user_type";
+const DISMISS_UNTIL_KEY = "installPromptDismissUntil";
+const DISMISS_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 type PromptLocale = "ko" | "en";
 
@@ -26,6 +28,15 @@ function isInStandaloneMode() {
     window.matchMedia("(display-mode: standalone)").matches ||
     (window.navigator as Navigator & { standalone?: boolean }).standalone === true
   );
+}
+
+function isDismissedWithinTtl() {
+  if (typeof window === "undefined") return false;
+  const dismissUntilRaw = localStorage.getItem(DISMISS_UNTIL_KEY);
+  if (!dismissUntilRaw) return false;
+  const dismissUntil = Number(dismissUntilRaw);
+  if (!Number.isFinite(dismissUntil)) return false;
+  return Date.now() < dismissUntil;
 }
 
 export default function InstallPrompt() {
@@ -48,35 +59,62 @@ export default function InstallPrompt() {
     const userType = localStorage.getItem(USER_TYPE_KEY);
     const isKatusa = userType === "KATUSA";
     setLocale(isKatusa ? "ko" : "en");
+    console.log("PWA: user_type 감지", { userType });
 
     const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-    const dismissed = localStorage.getItem(DISMISS_KEY) === "true";
+    const dismissed = isDismissedWithinTtl();
     const shouldBlockByPath = pathname === "/" || pathname === "/signup";
     const isStandalone = isInStandaloneMode();
-    const canShow = isSignupCompleted && !dismissed && !shouldBlockByPath && !isStandalone;
+    const hasUserContext = isSignupCompleted || !!userType;
+    const canShow = hasUserContext && !dismissed && !shouldBlockByPath && !isStandalone;
+
+    console.log("PWA: 초기 노출 조건", {
+      isSignupCompleted,
+      dismissed,
+      shouldBlockByPath,
+      isStandalone,
+      isIos,
+      hasUserContext,
+      canShow,
+    });
 
     setShowPrompt(canShow);
     if (isStandalone) {
+      console.log("PWA: Standalone 모드 감지로 인해 숨김");
       setShowInstalledToast(false);
+    }
+    if (isIos && canShow) {
+      console.log("PWA: iOS 모드 활성화");
     }
 
     const onBeforeInstallPrompt = (event: Event) => {
       if (isInStandaloneMode()) {
+        console.log("PWA: beforeinstallprompt 수신했지만 standalone이라 숨김");
         setShowPrompt(false);
         return;
       }
-      const dismissedNow = localStorage.getItem(DISMISS_KEY) === "true";
+      const dismissedNow = isDismissedWithinTtl();
       const signupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
+      const userTypeNow = localStorage.getItem(USER_TYPE_KEY);
+      const hasUserContextNow = signupCompletedNow || !!userTypeNow;
       const blockedNow = pathname === "/" || pathname === "/signup";
-      if (dismissedNow || !signupCompletedNow || blockedNow) {
+      if (dismissedNow || !hasUserContextNow || blockedNow) {
+        console.log("PWA: 이벤트 감지됐지만 노출 조건 불충족", {
+          dismissedNow,
+          signupCompletedNow,
+          userTypeNow,
+          blockedNow,
+        });
         return;
       }
       event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
       setShowPrompt(true);
+      console.log("PWA: 이벤트 감지됨 (beforeinstallprompt)");
     };
 
     const onAppInstalled = () => {
+      console.log("PWA: appinstalled 이벤트 감지됨");
       setShowPrompt(false);
       setDeferredPrompt(null);
       setIsInstalling(false);
@@ -92,6 +130,7 @@ export default function InstallPrompt() {
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
     const onDisplayModeChange = () => {
       if (mediaQuery.matches || isInStandaloneMode()) {
+        console.log("PWA: Standalone 모드 감지로 인해 숨김");
         setShowPrompt(false);
         setShowInstalledToast(false);
       }
@@ -99,17 +138,21 @@ export default function InstallPrompt() {
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible" && isInStandaloneMode()) {
+        console.log("PWA: Standalone 모드 감지로 인해 숨김");
         setShowPrompt(false);
         setShowInstalledToast(false);
       }
     };
 
+    // beforeinstallprompt 이벤트 누락 방지를 위해 캡처 단계에서도 리스닝
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt, true);
     window.addEventListener("appinstalled", onAppInstalled);
     mediaQuery.addEventListener("change", onDisplayModeChange);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt, true);
       window.removeEventListener("appinstalled", onAppInstalled);
       mediaQuery.removeEventListener("change", onDisplayModeChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -117,10 +160,12 @@ export default function InstallPrompt() {
         window.clearTimeout(installedToastTimerRef.current);
       }
     };
-  }, [pathname]);
+  }, [isIos, pathname]);
 
   const closePrompt = () => {
     localStorage.setItem(DISMISS_KEY, "true");
+    localStorage.setItem(DISMISS_UNTIL_KEY, String(Date.now() + DISMISS_TTL_MS));
+    console.log("PWA: 사용자가 팝업 닫음 (1시간 후 재노출 가능)");
     setShowPrompt(false);
   };
 
@@ -128,9 +173,11 @@ export default function InstallPrompt() {
     if (!deferredPrompt) return;
 
     setIsInstalling(true);
+    console.log("PWA: 설치 요청 시작");
     try {
       await deferredPrompt.prompt();
       const result = await deferredPrompt.userChoice;
+      console.log("PWA: 설치 선택 결과", result);
       if (result.outcome === "accepted") {
         setShowPrompt(false);
       }
@@ -144,8 +191,8 @@ export default function InstallPrompt() {
 
   const titleText =
     locale === "ko"
-      ? "더 빠르게, 더 편하게. 앱으로 만나보세요."
-      : "Faster & Simpler. Get the App.";
+      ? "앱으로 설치하고 더 빠르게 이용하세요"
+      : "Get the App for a faster experience";
   const installButtonText = isInstalling
     ? locale === "ko"
       ? "설치 중..."
@@ -173,7 +220,7 @@ export default function InstallPrompt() {
                 <p className="text-sm font-bold text-gray-900 leading-snug">{titleText}</p>
                 {isIos ? (
                   <p className="mt-1 text-xs leading-relaxed text-gray-600 break-words">
-                    iOS: 하단 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.
+                    iOS: Tap Share (□↑), then choose <strong>&quot;Add to Home Screen&quot;</strong>.
                   </p>
                 ) : (
                   <p className="mt-1 text-xs leading-relaxed text-gray-600 break-words">
