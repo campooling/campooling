@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -43,16 +43,12 @@ export default function InstallPrompt() {
   const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
-  const [showInstalledToast, setShowInstalledToast] = useState(false);
-  const installedToastTimerRef = useRef<number | null>(null);
   const [locale, setLocale] = useState<PromptLocale>("en");
   const [isIos] = useState(() => {
     if (typeof window === "undefined") return false;
     return isIosDevice();
   });
-  const [showPrompt, setShowPrompt] = useState(() => {
-    return false;
-  });
+  const [showPrompt, setShowPrompt] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -79,15 +75,13 @@ export default function InstallPrompt() {
     });
 
     setShowPrompt(canShow);
-    if (isStandalone) {
-      console.log("PWA: Standalone 모드 감지로 인해 숨김");
-      setShowInstalledToast(false);
-    }
     if (isIos && canShow) {
       console.log("PWA: iOS 모드 활성화");
     }
 
     const onBeforeInstallPrompt = (event: Event) => {
+      // 브라우저 상단 자동 인포바를 막고, 우리가 만든 하단 UI에서만 트리거한다.
+      event.preventDefault();
       if (isInStandaloneMode()) {
         console.log("PWA: beforeinstallprompt 수신했지만 standalone이라 숨김");
         setShowPrompt(false);
@@ -107,7 +101,6 @@ export default function InstallPrompt() {
         });
         return;
       }
-      event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
       setShowPrompt(true);
       console.log("PWA: 이벤트 감지됨 (beforeinstallprompt)");
@@ -118,13 +111,6 @@ export default function InstallPrompt() {
       setShowPrompt(false);
       setDeferredPrompt(null);
       setIsInstalling(false);
-      setShowInstalledToast(true);
-      if (installedToastTimerRef.current) {
-        window.clearTimeout(installedToastTimerRef.current);
-      }
-      installedToastTimerRef.current = window.setTimeout(() => {
-        setShowInstalledToast(false);
-      }, 4500);
     };
 
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
@@ -132,7 +118,6 @@ export default function InstallPrompt() {
       if (mediaQuery.matches || isInStandaloneMode()) {
         console.log("PWA: Standalone 모드 감지로 인해 숨김");
         setShowPrompt(false);
-        setShowInstalledToast(false);
       }
     };
 
@@ -140,7 +125,6 @@ export default function InstallPrompt() {
       if (document.visibilityState === "visible" && isInStandaloneMode()) {
         console.log("PWA: Standalone 모드 감지로 인해 숨김");
         setShowPrompt(false);
-        setShowInstalledToast(false);
       }
     };
 
@@ -156,9 +140,6 @@ export default function InstallPrompt() {
       window.removeEventListener("appinstalled", onAppInstalled);
       mediaQuery.removeEventListener("change", onDisplayModeChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      if (installedToastTimerRef.current) {
-        window.clearTimeout(installedToastTimerRef.current);
-      }
     };
   }, [isIos, pathname]);
 
@@ -170,7 +151,18 @@ export default function InstallPrompt() {
   };
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
+    if (isIos) {
+      alert(
+        locale === "ko"
+          ? 'Safari 공유 버튼(□↑) > "홈 화면에 추가"를 선택해주세요.'
+          : 'Tap Share (□↑) in Safari, then choose "Add to Home Screen".'
+      );
+      return;
+    }
+    if (!deferredPrompt) {
+      console.log("PWA: deferredPrompt가 없어 원본 설치 모달을 열 수 없음");
+      return;
+    }
 
     setIsInstalling(true);
     console.log("PWA: 설치 요청 시작");
@@ -187,81 +179,58 @@ export default function InstallPrompt() {
     }
   };
 
-  if (!showPrompt && !showInstalledToast) return null;
+  if (!showPrompt) return null;
 
   const titleText =
     locale === "ko"
-      ? "앱으로 설치하고 더 빠르게 이용하세요"
-      : "Get the App for a faster experience";
+      ? "더 빠르고 편리한 캠풀링 앱을 만나보세요."
+      : "Experience Campooling App for a faster & better ride.";
   const installButtonText = isInstalling
     ? locale === "ko"
       ? "설치 중..."
       : "Installing..."
     : locale === "ko"
-      ? "지금 설치"
+      ? "지금 설치하기"
       : "Install Now";
-  const completionText =
-    locale === "ko"
-      ? "설치가 완료되었습니다! 앱 목록에서 캠풀링을 찾아 홈 화면으로 꺼내주세요."
-      : "Done! Find Campooling in your app list and add it to your home screen.";
 
   return (
-    <>
-      {showPrompt ? (
-        <div
-          className="fixed left-0 right-0 z-[120] px-4"
-          style={{
-            bottom: "calc(84px + env(safe-area-inset-bottom))",
-          }}
-        >
-          <div className="mx-auto w-full max-w-xl rounded-2xl border border-blue-200 bg-white/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl backdrop-blur">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-gray-900 leading-snug">{titleText}</p>
-                {isIos ? (
-                  <p className="mt-1 text-xs leading-relaxed text-gray-600 break-words">
-                    iOS: Tap Share (□↑), then choose <strong>&quot;Add to Home Screen&quot;</strong>.
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs leading-relaxed text-gray-600 break-words">
-                    홈 화면에 추가하면 앱처럼 바로 실행할 수 있습니다.
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                aria-label="설치 안내 닫기"
-                onClick={closePrompt}
-                className="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-            {!isIos && deferredPrompt ? (
-              <button
-                type="button"
-                onClick={handleInstallClick}
-                disabled={isInstalling}
-                className="mt-3 w-full rounded-full bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {installButtonText}
-              </button>
+    <div
+      className="fixed left-0 right-0 z-[130] px-4"
+      style={{
+        bottom: "calc(84px + env(safe-area-inset-bottom))",
+      }}
+    >
+      <div className="mx-auto w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-2 text-sm font-semibold text-gray-900 leading-snug">
+              <span aria-hidden>🚕</span>
+              <span>{titleText}</span>
+            </p>
+            {isIos ? (
+              <p className="mt-2 text-xs leading-relaxed text-gray-600">
+                iOS: Tap Share (□↑), then choose <strong>&quot;Add to Home Screen&quot;</strong>.
+              </p>
             ) : null}
           </div>
+          <button
+            type="button"
+            aria-label="설치 안내 닫기"
+            onClick={closePrompt}
+            className="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
+            ✕
+          </button>
         </div>
-      ) : null}
-      {showInstalledToast ? (
-        <div
-          className="fixed left-1/2 z-[130] w-[min(92vw,560px)] -translate-x-1/2 px-2"
-          style={{
-            bottom: "calc(84px + env(safe-area-inset-bottom))",
-          }}
+        <button
+          type="button"
+          onClick={handleInstallClick}
+          disabled={isInstalling || (!isIos && !deferredPrompt)}
+          className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <div className="rounded-2xl bg-slate-900 p-4 shadow-2xl">
-            <p className="text-sm font-semibold leading-relaxed text-white">{completionText}</p>
-          </div>
-        </div>
-      ) : null}
-    </>
+          {installButtonText}
+        </button>
+      </div>
+    </div>
   );
 }
