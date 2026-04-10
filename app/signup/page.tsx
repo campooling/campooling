@@ -66,6 +66,11 @@ export default function SignupPage() {
       return;
     }
 
+    if (typeof window !== "undefined") {
+      localStorage.setItem("user_type", role);
+      localStorage.setItem("signup_completed", "true");
+    }
+
     router.push("/feed");
   };
 
