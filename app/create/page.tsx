@@ -6,6 +6,12 @@ import { MapPin, CalendarDays, Users, Clock, X } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
 import { createClient } from '@/lib/supabase/client';
 
+type AvailableDate = {
+  dayName: string;
+  dayOfMonth: number;
+  fullDate: string;
+};
+
 // Mock Data: 험프리스 주변 거점
 const HumphreysLocations = [
   'Pyeongtaek St.',
@@ -35,7 +41,7 @@ export default function CreateRoomPage() {
   // --- 상태 관리 (State) ---
   
   // 1. 출발 날짜 선택 (사진 1 참조: 1주일 가로 스크롤)
-  const [availableDates, setAvailableDates] = useState<any[]>([]);
+  const [availableDates, setAvailableDates] = useState<AvailableDate[]>([]);
   const [selectedDate, setSelectedDate] = useState(''); // yyyy-mm-dd
 
   // 2. 출발/도착지 선택 (사진 2 참조: 세련된 노선도 UI + 모달)
@@ -176,8 +182,9 @@ export default function CreateRoomPage() {
 
       alert('Room created successfully!');
       router.push('/feed');
-    } catch (error: any) {
-      alert('Error creating room: ' + error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert('Error creating room: ' + message);
     }
   };
 

@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import BottomNav from '../components/BottomNav';
 import { createClient } from '@/lib/supabase/client';
@@ -16,6 +16,14 @@ type Pod = {
   status: string;
   created_at: string;
   member_count?: number;
+};
+
+type PodWithCount = Pod & {
+  member_count: number;
+};
+
+type JoinedPod = {
+  pod_id: string;
 };
 
 function formatHeader(dateIso: string) {
@@ -36,13 +44,13 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
 
-  const fetchPods = async () => {
+  const fetchPods = useCallback(async () => {
     if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id || null);
 
     // Fetch active pods with member counts
-    const { data: podsData, error: podsError } = await supabase
+    const { data: podsData } = await supabase
       .from('pods')
       .select(`
         *,
@@ -53,13 +61,13 @@ export default function FeedPage() {
 
     if (podsData) {
       // Supabase count returns an array of objects like { count: 5 }
-      const formattedPods = podsData.map((p: any) => ({
+      const formattedPods: PodWithCount[] = podsData.map((p: Pod & { member_count?: Array<{ count?: number }> }) => ({
         ...p,
-        member_count: p.member_count[0]?.count || 0
+        member_count: p.member_count?.[0]?.count || 0
       }));
       const emptyRoomIds = formattedPods
-        .filter((p: any) => (p.member_count || 0) <= 0)
-        .map((p: any) => p.id);
+        .filter((p) => (p.member_count || 0) <= 0)
+        .map((p) => p.id);
       if (emptyRoomIds.length > 0) {
         try {
           await supabase.from('pods').delete().in('id', emptyRoomIds);
@@ -69,11 +77,11 @@ export default function FeedPage() {
       }
       // 6시간 지난 방은 status를 만료로 바꿔서 피드에서 제거
       const expiredIds = formattedPods
-        .filter((p: any) => {
+        .filter((p) => {
           const ms = new Date(p.departure_time).getTime();
           return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 <= Date.now();
         })
-        .map((p: any) => p.id);
+        .map((p) => p.id);
       if (expiredIds.length > 0) {
         try {
           await supabase.from('pods').update({ status: 'expired' }).in('id', expiredIds);
@@ -84,7 +92,7 @@ export default function FeedPage() {
 
       // 화면 표시는 6시간 지난 방 제외
       setPods(
-        formattedPods.filter((p: any) => {
+        formattedPods.filter((p) => {
           if ((p.member_count || 0) <= 0) return false;
           const ms = new Date(p.departure_time).getTime();
           return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > Date.now();
@@ -100,15 +108,17 @@ export default function FeedPage() {
         .eq('user_id', user.id);
       
       if (joinedData) {
-        setJoinedIds(new Set(joinedData.map((j: any) => j.pod_id)));
+        setJoinedIds(new Set((joinedData as JoinedPod[]).map((j) => j.pod_id)));
       }
     }
     setLoading(false);
-  };
+  }, [supabase]);
 
   useEffect(() => {
     if (!supabase) return;
-    fetchPods();
+    const initialFetchTimer = window.setTimeout(() => {
+      void fetchPods();
+    }, 0);
 
     // Set up real-time subscription for pod updates
     const channel = supabase
@@ -118,9 +128,10 @@ export default function FeedPage() {
       .subscribe();
 
     return () => {
+      window.clearTimeout(initialFetchTimer);
       supabase.removeChannel(channel);
     };
-  }, [supabase]);
+  }, [supabase, fetchPods]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);

@@ -6,10 +6,29 @@ import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
 import { createClient } from '@/lib/supabase/client';
 
+type MyPod = {
+  id: string;
+  origin: string;
+  destination: string;
+  departure_time: string;
+  capacity: number;
+  member_count: number;
+};
+
+type MembershipRow = {
+  pod: (Omit<MyPod, 'member_count'> & { member_count?: Array<{ count?: number }> }) | null;
+};
+
+function hasPod(
+  pod: MembershipRow['pod']
+): pod is NonNullable<MembershipRow['pod']> {
+  return pod !== null;
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
-  const [myPods, setMyPods] = useState<any[]>([]);
+  const [myPods, setMyPods] = useState<MyPod[]>([]);
   const [displayName, setDisplayName] = useState('Guest');
   const [displayRole, setDisplayRole] = useState('—');
   const [loading, setLoading] = useState(true);
@@ -49,22 +68,22 @@ export default function ProfilePage() {
 
       if (memberships) {
         const now = Date.now();
-        const formattedPods = memberships
-          .map((m: any) => m.pod)
-          .filter(Boolean)
-          .map((p: any) => ({
+        const formattedPods = (memberships as MembershipRow[])
+          .map((m) => m.pod)
+          .filter(hasPod)
+          .map((p) => ({
             ...p,
-            member_count: p.member_count[0]?.count || 0
+            member_count: p.member_count?.[0]?.count || 0
           }))
           // 6시간 지난 방은 프로필에서도 제거(그리고 status 만료 처리)
-          .filter((p: any) => {
+          .filter((p) => {
             const ms = new Date(p.departure_time).getTime();
             return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > now;
           })
-          .sort((a: any, b: any) => 
+          .sort((a, b) => 
             new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
           );
-        setMyPods(formattedPods);
+        setMyPods(formattedPods as MyPod[]);
       }
       setLoading(false);
     };
