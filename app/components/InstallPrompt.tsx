@@ -11,6 +11,9 @@ interface BeforeInstallPromptEvent extends Event {
 
 const SIGNUP_COMPLETED_KEY = "signup_completed";
 const USER_TYPE_KEY = "user_type";
+const DISMISS_UNTIL_KEY = "installPromptDismissUntil";
+const DISMISS_TTL_MS = 60 * 1000; // 1분
+const PWA_INSTALLED_KEY = "pwaInstalled";
 
 type PromptLocale = "ko" | "en";
 
@@ -27,11 +30,20 @@ function isInStandaloneMode() {
   );
 }
 
+function isDismissedWithinTtl() {
+  if (typeof window === "undefined") return false;
+  const raw = localStorage.getItem(DISMISS_UNTIL_KEY);
+  if (!raw) return false;
+  const until = Number(raw);
+  if (!Number.isFinite(until)) return false;
+  return Date.now() < until;
+}
 
 export default function InstallPrompt() {
   const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+  const [installSuccess, setInstallSuccess] = useState(false);
   const [locale, setLocale] = useState<PromptLocale>("en");
   const [isIos, setIsIos] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
@@ -39,7 +51,6 @@ export default function InstallPrompt() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // SSR 하이드레이션 문제를 피하기 위해 useEffect 내에서 iOS 감지
     const detectedIsIos = isIosDevice();
     setIsIos(detectedIsIos);
 
@@ -49,32 +60,40 @@ export default function InstallPrompt() {
     console.log("PWA: user_type 감지", { userType });
 
     const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-    // auth 플로우 전체 경로와 회원가입 전 단계를 모두 차단
+    const isPwaInstalled = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
+    const dismissed = isDismissedWithinTtl();
     const shouldBlockByPath =
       pathname === "/" ||
       pathname === "/signup" ||
       pathname.startsWith("/auth");
     const isStandalone = isInStandaloneMode();
-    // signup_completed만 체크: user_type은 중간 단계에서도 설정될 수 있어 제외
     const hasUserContext = isSignupCompleted;
-    const canShow = hasUserContext && !shouldBlockByPath && !isStandalone;
+    const canShow =
+      hasUserContext && !isPwaInstalled && !dismissed && !shouldBlockByPath && !isStandalone;
 
     console.log("PWA: 초기 노출 조건", {
       isSignupCompleted,
+      isPwaInstalled,
+      dismissed,
       shouldBlockByPath,
       isStandalone,
       isIos: detectedIsIos,
-      hasUserContext,
       canShow,
     });
 
-    setShowPrompt(canShow);
+    // iOS: 조건 충족 시 즉시 표시
+    // Android: beforeinstallprompt 이벤트에서만 표시 (이미 설치된 경우 이벤트 미발생 → 팝업 안 뜸)
+    if (detectedIsIos) {
+      setShowPrompt(canShow);
+    } else {
+      if (!canShow) setShowPrompt(false);
+    }
+
     if (detectedIsIos && canShow) {
       console.log("PWA: iOS 모드 활성화");
     }
 
     const onBeforeInstallPrompt = (event: Event) => {
-      // 브라우저 상단 자동 인포바를 막고, 우리가 만든 하단 UI에서만 트리거한다.
       event.preventDefault();
       if (isInStandaloneMode()) {
         console.log("PWA: beforeinstallprompt 수신했지만 standalone이라 숨김");
@@ -82,14 +101,17 @@ export default function InstallPrompt() {
         return;
       }
       const signupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-      const hasUserContextNow = signupCompletedNow;
+      const isPwaInstalledNow = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
+      const dismissedNow = isDismissedWithinTtl();
       const blockedNow =
         pathname === "/" ||
         pathname === "/signup" ||
         pathname.startsWith("/auth");
-      if (!hasUserContextNow || blockedNow) {
+      if (!signupCompletedNow || isPwaInstalledNow || dismissedNow || blockedNow) {
         console.log("PWA: 이벤트 감지됐지만 노출 조건 불충족", {
           signupCompletedNow,
+          isPwaInstalledNow,
+          dismissedNow,
           blockedNow,
         });
         return;
@@ -101,6 +123,7 @@ export default function InstallPrompt() {
 
     const onAppInstalled = () => {
       console.log("PWA: appinstalled 이벤트 감지됨");
+      localStorage.setItem(PWA_INSTALLED_KEY, "true");
       setShowPrompt(false);
       setDeferredPrompt(null);
       setIsInstalling(false);
@@ -121,7 +144,6 @@ export default function InstallPrompt() {
       }
     };
 
-    // beforeinstallprompt 이벤트 누락 방지를 위해 캡처 단계에서도 리스닝
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt, true);
     window.addEventListener("appinstalled", onAppInstalled);
@@ -137,17 +159,15 @@ export default function InstallPrompt() {
   }, [pathname]);
 
   const closePrompt = () => {
-    console.log("PWA: 사용자가 팝업 닫음 (다음 방문 시 재노출)");
+    localStorage.setItem(DISMISS_UNTIL_KEY, String(Date.now() + DISMISS_TTL_MS));
+    console.log("PWA: 사용자가 팝업 닫음 (1분 후 재노출 가능)");
     setShowPrompt(false);
+    setInstallSuccess(false);
   };
 
   const handleInstallClick = async () => {
     if (isIos) {
-      alert(
-        locale === "ko"
-          ? 'Safari 공유 버튼(□↑) > "홈 화면에 추가"를 선택해주세요.'
-          : 'Tap Share (□↑) in Safari, then choose "Add to Home Screen".'
-      );
+      setInstallSuccess(true);
       return;
     }
     if (!deferredPrompt) {
@@ -162,7 +182,9 @@ export default function InstallPrompt() {
       const result = await deferredPrompt.userChoice;
       console.log("PWA: 설치 선택 결과", result);
       if (result.outcome === "accepted") {
-        setShowPrompt(false);
+        localStorage.setItem(PWA_INSTALLED_KEY, "true");
+        setInstallSuccess(true);
+        setTimeout(() => setShowPrompt(false), 4000);
       }
     } finally {
       setIsInstalling(false);
@@ -171,6 +193,8 @@ export default function InstallPrompt() {
   };
 
   if (!showPrompt) return null;
+  // Android에서 beforeinstallprompt 미발생 = 이미 설치됨
+  if (!isIos && !deferredPrompt && !installSuccess) return null;
 
   const titleText =
     locale === "ko"
@@ -208,21 +232,32 @@ export default function InstallPrompt() {
             {titleText}
           </p>
         </div>
-        {isIos ? (
+        {isIos && !installSuccess ? (
           <p className="mt-3 text-xs leading-relaxed text-gray-600">
             {locale === "ko"
               ? <>사파리 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
               : <>Tap Share (□↑) in Safari, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>}
           </p>
         ) : null}
-        <button
-          type="button"
-          onClick={handleInstallClick}
-          disabled={isInstalling || (!isIos && !deferredPrompt)}
-          className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {installButtonText}
-        </button>
+        {installSuccess ? (
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+            <span>✅</span>
+            <span>
+              {locale === "ko"
+                ? "설치가 완료되었습니다. 바탕화면으로 꺼내 주세요."
+                : "Installation complete. Open it from your home screen!"}
+            </span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleInstallClick}
+            disabled={isInstalling || (!isIos && !deferredPrompt)}
+            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {installButtonText}
+          </button>
+        )}
       </div>
     </div>
   );
