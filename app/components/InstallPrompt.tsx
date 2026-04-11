@@ -44,14 +44,16 @@ export default function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [locale, setLocale] = useState<PromptLocale>("en");
-  const [isIos] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return isIosDevice();
-  });
+  const [isIos, setIsIos] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // SSR 하이드레이션 문제를 피하기 위해 useEffect 내에서 iOS 감지
+    const detectedIsIos = isIosDevice();
+    setIsIos(detectedIsIos);
+
     const userType = localStorage.getItem(USER_TYPE_KEY);
     const isKatusa = userType === "KATUSA";
     setLocale(isKatusa ? "ko" : "en");
@@ -59,9 +61,14 @@ export default function InstallPrompt() {
 
     const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
     const dismissed = isDismissedWithinTtl();
-    const shouldBlockByPath = pathname === "/" || pathname === "/signup";
+    // auth 플로우 전체 경로와 회원가입 전 단계를 모두 차단
+    const shouldBlockByPath =
+      pathname === "/" ||
+      pathname === "/signup" ||
+      pathname.startsWith("/auth");
     const isStandalone = isInStandaloneMode();
-    const hasUserContext = isSignupCompleted || !!userType;
+    // signup_completed만 체크: user_type은 중간 단계에서도 설정될 수 있어 제외
+    const hasUserContext = isSignupCompleted;
     const canShow = hasUserContext && !dismissed && !shouldBlockByPath && !isStandalone;
 
     console.log("PWA: 초기 노출 조건", {
@@ -69,13 +76,13 @@ export default function InstallPrompt() {
       dismissed,
       shouldBlockByPath,
       isStandalone,
-      isIos,
+      isIos: detectedIsIos,
       hasUserContext,
       canShow,
     });
 
     setShowPrompt(canShow);
-    if (isIos && canShow) {
+    if (detectedIsIos && canShow) {
       console.log("PWA: iOS 모드 활성화");
     }
 
@@ -89,14 +96,15 @@ export default function InstallPrompt() {
       }
       const dismissedNow = isDismissedWithinTtl();
       const signupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-      const userTypeNow = localStorage.getItem(USER_TYPE_KEY);
-      const hasUserContextNow = signupCompletedNow || !!userTypeNow;
-      const blockedNow = pathname === "/" || pathname === "/signup";
+      const hasUserContextNow = signupCompletedNow;
+      const blockedNow =
+        pathname === "/" ||
+        pathname === "/signup" ||
+        pathname.startsWith("/auth");
       if (dismissedNow || !hasUserContextNow || blockedNow) {
         console.log("PWA: 이벤트 감지됐지만 노출 조건 불충족", {
           dismissedNow,
           signupCompletedNow,
-          userTypeNow,
           blockedNow,
         });
         return;
@@ -141,7 +149,7 @@ export default function InstallPrompt() {
       mediaQuery.removeEventListener("change", onDisplayModeChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [isIos, pathname]);
+  }, [pathname]);
 
   const closePrompt = () => {
     localStorage.setItem(DISMISS_KEY, "true");
@@ -209,7 +217,9 @@ export default function InstallPrompt() {
             </p>
             {isIos ? (
               <p className="mt-2 text-xs leading-relaxed text-gray-600">
-                iOS: Tap Share (□↑), then choose <strong>&quot;Add to Home Screen&quot;</strong>.
+                {locale === "ko"
+                  ? <>사파리 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+                  : <>Tap Share (□↑) in Safari, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>}
               </p>
             ) : null}
           </div>
