@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -42,6 +42,8 @@ function isDismissedWithinTtl() {
 export default function InstallPrompt() {
   const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  // stale closure 없이 항상 최신 deferredPrompt에 접근하기 위한 ref
+  const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
   const [locale, setLocale] = useState<PromptLocale>("en");
@@ -100,6 +102,9 @@ export default function InstallPrompt() {
         setShowPrompt(false);
         return;
       }
+      // signup_completed 미설정 시에도 ref에 저장 → authReady 이벤트에서 재활용
+      deferredPromptRef.current = event as BeforeInstallPromptEvent;
+
       const signupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
       const isPwaInstalledNow = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
       const dismissedNow = isDismissedWithinTtl();
@@ -119,6 +124,33 @@ export default function InstallPrompt() {
       setDeferredPrompt(event as BeforeInstallPromptEvent);
       setShowPrompt(true);
       console.log("PWA: 이벤트 감지됨 (beforeinstallprompt)");
+    };
+
+    // feed/page.tsx에서 signup_completed 복구 후 발송하는 이벤트 수신
+    const onAuthReady = () => {
+      console.log("PWA: campooling:authReady 이벤트 수신");
+      const isSignupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
+      const isPwaInstalledNow = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
+      const dismissedNow = isDismissedWithinTtl();
+      const standaloneNow = isInStandaloneMode();
+      const blockedNow =
+        pathname === "/" ||
+        pathname === "/signup" ||
+        pathname.startsWith("/auth");
+      const canShowNow =
+        isSignupCompletedNow && !isPwaInstalledNow && !dismissedNow && !blockedNow && !standaloneNow;
+
+      if (!canShowNow) return;
+
+      if (detectedIsIos) {
+        setShowPrompt(true);
+        console.log("PWA: authReady → iOS 팝업 표시");
+      } else if (deferredPromptRef.current) {
+        // beforeinstallprompt가 이미 발생했고 ref에 저장되어 있는 경우
+        setDeferredPrompt(deferredPromptRef.current);
+        setShowPrompt(true);
+        console.log("PWA: authReady → Android 팝업 표시 (저장된 deferredPrompt 사용)");
+      }
     };
 
     const onAppInstalled = () => {
@@ -149,12 +181,14 @@ export default function InstallPrompt() {
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt, true);
     window.addEventListener("appinstalled", onAppInstalled);
+    window.addEventListener("campooling:authReady", onAuthReady);
     mediaQuery.addEventListener("change", onDisplayModeChange);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt, true);
       window.removeEventListener("appinstalled", onAppInstalled);
+      window.removeEventListener("campooling:authReady", onAuthReady);
       mediaQuery.removeEventListener("change", onDisplayModeChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };

@@ -44,6 +44,29 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
 
+  // 구 main에서 signup_completed가 없던 기존 유저를 위한 복구 로직
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem('signup_completed') === 'true') return;
+    const restore = async () => {
+      if (!supabase) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      if (profile) {
+        localStorage.setItem('signup_completed', 'true');
+        if (profile.role) localStorage.setItem('user_type', String(profile.role));
+        // InstallPrompt에 상태 준비 완료를 알려 팝업 재평가 유도
+        window.dispatchEvent(new CustomEvent('campooling:authReady'));
+      }
+    };
+    void restore();
+  }, [supabase]);
+
   const fetchPods = useCallback(async () => {
     if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
