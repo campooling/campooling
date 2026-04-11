@@ -12,7 +12,7 @@ interface BeforeInstallPromptEvent extends Event {
 const SIGNUP_COMPLETED_KEY = "signup_completed";
 const USER_TYPE_KEY = "user_type";
 const DISMISS_UNTIL_KEY = "installPromptDismissUntil";
-const DISMISS_TTL_MS = 60 * 1000; // 1분
+const DISMISS_TTL_MS = 60 * 1000;
 const PWA_INSTALLED_KEY = "pwaInstalled";
 
 type PromptLocale = "ko" | "en";
@@ -23,12 +23,10 @@ function detectBrowser(): BrowserKind {
   const ua = navigator.userAgent;
   const isIos = /iphone|ipad|ipod/i.test(ua);
   if (isIos) {
-    // iOS에서 Chrome, Firefox, Edge 등은 WebKit 기반이지만 "CriOS", "FxiOS", "EdgiOS" 포함
     if (/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) return "ios-chrome";
     return "ios-safari";
   }
-  const isAndroid = /android/i.test(ua);
-  if (isAndroid) {
+  if (/android/i.test(ua)) {
     if (/SamsungBrowser/i.test(ua)) return "android-samsung";
     if (/Chrome/i.test(ua) && !/OPR|Edge/i.test(ua)) return "android-chrome";
     return "android-other";
@@ -53,17 +51,19 @@ function isDismissedWithinTtl() {
   return Date.now() < until;
 }
 
-function shouldBlockPath(pathname: string) {
-  return pathname === "/" || pathname === "/signup" || pathname.startsWith("/auth");
-}
-
 function canShowPrompt(pathname: string) {
   if (typeof window === "undefined") return false;
   const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
   const isPwaInstalled = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
   const dismissed = isDismissedWithinTtl();
   const isStandalone = isInStandaloneMode();
-  return isSignupCompleted && !isPwaInstalled && !dismissed && !shouldBlockPath(pathname) && !isStandalone;
+  return isSignupCompleted && !isPwaInstalled && !dismissed && !isStandalone &&
+    pathname !== "/" && pathname !== "/signup" && !pathname.startsWith("/auth");
+}
+
+// beforeinstallprompt를 지원하는 브라우저: 이벤트 도착 후에만 팝업 표시
+function supportsNativeInstall(b: BrowserKind) {
+  return b === "android-chrome" || b === "android-other" || b === "desktop";
 }
 
 export default function InstallPrompt() {
@@ -78,35 +78,40 @@ export default function InstallPrompt() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const detectedBrowser = detectBrowser();
-    setBrowser(detectedBrowser);
+    const detected = detectBrowser();
+    setBrowser(detected);
 
     const userType = localStorage.getItem(USER_TYPE_KEY);
-    const isKatusa = userType === "KATUSA";
-    setLocale(isKatusa ? "ko" : "en");
+    setLocale(userType === "KATUSA" ? "ko" : "en");
 
-    const show = canShowPrompt(pathname);
-    console.log("PWA: 초기 노출 조건", { browser: detectedBrowser, show, pathname });
-    setShowPrompt(show);
+    const conditions = canShowPrompt(pathname);
+
+    // Android Chrome / desktop: beforeinstallprompt 이벤트 대기 (즉시 표시 안 함)
+    // iOS / Samsung: 조건 충족 시 즉시 표시
+    if (!supportsNativeInstall(detected)) {
+      setShowPrompt(conditions);
+    }
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       deferredPromptRef.current = event as BeforeInstallPromptEvent;
-      console.log("PWA: beforeinstallprompt 이벤트 저장됨");
+      console.log("PWA: beforeinstallprompt 이벤트 수신");
       if (canShowPrompt(pathname) && !isInStandaloneMode()) {
         setShowPrompt(true);
       }
     };
 
     const onAuthReady = () => {
-      console.log("PWA: campooling:authReady 이벤트 수신");
-      if (canShowPrompt(pathname)) {
+      if (!canShowPrompt(pathname)) return;
+      // 네이티브 설치 지원 브라우저: deferredPrompt가 있어야만 표시
+      if (supportsNativeInstall(detected)) {
+        if (deferredPromptRef.current) setShowPrompt(true);
+      } else {
         setShowPrompt(true);
       }
     };
 
     const onAppInstalled = () => {
-      console.log("PWA: appinstalled 이벤트 감지됨");
       localStorage.setItem(PWA_INSTALLED_KEY, "true");
       setInstallSuccess(true);
       setIsInstalling(false);
@@ -115,14 +120,10 @@ export default function InstallPrompt() {
 
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
     const onDisplayModeChange = () => {
-      if (mediaQuery.matches || isInStandaloneMode()) {
-        setShowPrompt(false);
-      }
+      if (mediaQuery.matches || isInStandaloneMode()) setShowPrompt(false);
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isInStandaloneMode()) {
-        setShowPrompt(false);
-      }
+      if (document.visibilityState === "visible" && isInStandaloneMode()) setShowPrompt(false);
     };
 
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
@@ -147,9 +148,8 @@ export default function InstallPrompt() {
     setInstallSuccess(false);
   };
 
-  const [showManualFallback, setShowManualFallback] = useState(false);
-
   const handleInstallClick = async () => {
+    // 네이티브 설치 (Android Chrome): deferredPrompt가 반드시 있음
     if (deferredPromptRef.current) {
       setIsInstalling(true);
       try {
@@ -164,15 +164,10 @@ export default function InstallPrompt() {
         setIsInstalling(false);
         deferredPromptRef.current = null;
       }
-      return;
     }
-    // deferredPrompt가 없는 경우 → 수동 안내 표시
-    setShowManualFallback(true);
   };
 
   if (!showPrompt) return null;
-
-  const isIos = browser === "ios-safari" || browser === "ios-chrome";
 
   const titleText =
     locale === "ko"
@@ -182,48 +177,8 @@ export default function InstallPrompt() {
     ? locale === "ko" ? "설치 중..." : "Installing..."
     : locale === "ko" ? "지금 설치하기" : "Install Now";
 
-  const renderManualGuide = () => {
-    if (installSuccess) return null;
-
-    if (browser === "ios-safari") {
-      return (
-        <p className="mt-3 text-xs leading-relaxed text-gray-600">
-          {locale === "ko"
-            ? <>하단 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
-            : <>Tap Share (□↑) at the bottom, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>}
-        </p>
-      );
-    }
-    if (browser === "ios-chrome") {
-      return (
-        <p className="mt-3 text-xs leading-relaxed text-gray-600">
-          {locale === "ko"
-            ? <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong>Safari</strong>로 이 페이지를 열어주세요.</>
-            : <>Open this page in <strong>Safari</strong> to add it to your home screen.</>}
-        </p>
-      );
-    }
-    if (browser === "android-samsung") {
-      return (
-        <p className="mt-3 text-xs leading-relaxed text-gray-600">
-          {locale === "ko"
-            ? <>메뉴(≡) → <strong>&quot;현재 페이지 추가&quot;</strong> → <strong>&quot;홈 화면&quot;</strong>을 선택하세요.</>
-            : <>Tap Menu (≡) → <strong>&quot;Add page to&quot;</strong> → <strong>&quot;Home screen&quot;</strong>.</>}
-        </p>
-      );
-    }
-    // Android Chrome에서 deferredPrompt가 아직 없을 때 버튼 클릭 → 수동 안내
-    if (showManualFallback && (browser === "android-chrome" || browser === "android-other")) {
-      return (
-        <p className="mt-3 text-xs leading-relaxed text-gray-600">
-          {locale === "ko"
-            ? <>우측 상단 메뉴(⋮) → <strong>&quot;앱 설치&quot;</strong> 또는 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
-            : <>Tap Menu (⋮) at the top right → <strong>&quot;Install app&quot;</strong> or <strong>&quot;Add to Home screen&quot;</strong>.</>}
-        </p>
-      );
-    }
-    return null;
-  };
+  // 네이티브 설치 불가능한 브라우저용 수동 안내
+  const hasNativePrompt = supportsNativeInstall(browser);
 
   return (
     <div
@@ -247,7 +202,28 @@ export default function InstallPrompt() {
             {titleText}
           </p>
         </div>
-        {renderManualGuide()}
+
+        {/* 수동 안내 (iOS / Samsung) */}
+        {!installSuccess && !hasNativePrompt && (
+          <p className="mt-3 text-xs leading-relaxed text-gray-600">
+            {browser === "ios-safari" && (
+              locale === "ko"
+                ? <>하단 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+                : <>Tap Share (□↑) at the bottom, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>
+            )}
+            {browser === "ios-chrome" && (
+              locale === "ko"
+                ? <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong>Safari</strong>로 이 페이지를 열어주세요.</>
+                : <>Open this page in <strong>Safari</strong> to add it to your home screen.</>
+            )}
+            {browser === "android-samsung" && (
+              locale === "ko"
+                ? <>메뉴(≡) → <strong>&quot;현재 페이지 추가&quot;</strong> → <strong>&quot;홈 화면&quot;</strong>을 선택하세요.</>
+                : <>Tap Menu (≡) → <strong>&quot;Add page to&quot;</strong> → <strong>&quot;Home screen&quot;</strong>.</>
+            )}
+          </p>
+        )}
+
         {installSuccess ? (
           <div className="mt-4 flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
             <span>✅</span>
@@ -257,7 +233,7 @@ export default function InstallPrompt() {
                 : "Installation complete. Open it from your home screen!"}
             </span>
           </div>
-        ) : (
+        ) : hasNativePrompt ? (
           <button
             type="button"
             onClick={handleInstallClick}
@@ -266,7 +242,7 @@ export default function InstallPrompt() {
           >
             {installButtonText}
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );
