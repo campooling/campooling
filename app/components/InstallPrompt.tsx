@@ -9,11 +9,8 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
-const DISMISS_KEY = "installPromptDismissed";
 const SIGNUP_COMPLETED_KEY = "signup_completed";
 const USER_TYPE_KEY = "user_type";
-const DISMISS_UNTIL_KEY = "installPromptDismissUntil";
-const DISMISS_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 type PromptLocale = "ko" | "en";
 
@@ -30,14 +27,6 @@ function isInStandaloneMode() {
   );
 }
 
-function isDismissedWithinTtl() {
-  if (typeof window === "undefined") return false;
-  const dismissUntilRaw = localStorage.getItem(DISMISS_UNTIL_KEY);
-  if (!dismissUntilRaw) return false;
-  const dismissUntil = Number(dismissUntilRaw);
-  if (!Number.isFinite(dismissUntil)) return false;
-  return Date.now() < dismissUntil;
-}
 
 export default function InstallPrompt() {
   const pathname = usePathname();
@@ -60,7 +49,6 @@ export default function InstallPrompt() {
     console.log("PWA: user_type 감지", { userType });
 
     const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-    const dismissed = isDismissedWithinTtl();
     // auth 플로우 전체 경로와 회원가입 전 단계를 모두 차단
     const shouldBlockByPath =
       pathname === "/" ||
@@ -69,11 +57,10 @@ export default function InstallPrompt() {
     const isStandalone = isInStandaloneMode();
     // signup_completed만 체크: user_type은 중간 단계에서도 설정될 수 있어 제외
     const hasUserContext = isSignupCompleted;
-    const canShow = hasUserContext && !dismissed && !shouldBlockByPath && !isStandalone;
+    const canShow = hasUserContext && !shouldBlockByPath && !isStandalone;
 
     console.log("PWA: 초기 노출 조건", {
       isSignupCompleted,
-      dismissed,
       shouldBlockByPath,
       isStandalone,
       isIos: detectedIsIos,
@@ -94,16 +81,14 @@ export default function InstallPrompt() {
         setShowPrompt(false);
         return;
       }
-      const dismissedNow = isDismissedWithinTtl();
       const signupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
       const hasUserContextNow = signupCompletedNow;
       const blockedNow =
         pathname === "/" ||
         pathname === "/signup" ||
         pathname.startsWith("/auth");
-      if (dismissedNow || !hasUserContextNow || blockedNow) {
+      if (!hasUserContextNow || blockedNow) {
         console.log("PWA: 이벤트 감지됐지만 노출 조건 불충족", {
-          dismissedNow,
           signupCompletedNow,
           blockedNow,
         });
@@ -152,9 +137,7 @@ export default function InstallPrompt() {
   }, [pathname]);
 
   const closePrompt = () => {
-    localStorage.setItem(DISMISS_KEY, "true");
-    localStorage.setItem(DISMISS_UNTIL_KEY, String(Date.now() + DISMISS_TTL_MS));
-    console.log("PWA: 사용자가 팝업 닫음 (1시간 후 재노출 가능)");
+    console.log("PWA: 사용자가 팝업 닫음 (다음 방문 시 재노출)");
     setShowPrompt(false);
   };
 
@@ -208,35 +191,35 @@ export default function InstallPrompt() {
         bottom: "calc(84px + env(safe-area-inset-bottom))",
       }}
     >
-      <div className="mx-auto w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 text-sm font-semibold text-gray-900 leading-snug">
-              <span aria-hidden>🚕</span>
-              <span>{titleText}</span>
-            </p>
-            {isIos ? (
-              <p className="mt-2 text-xs leading-relaxed text-gray-600">
-                {locale === "ko"
-                  ? <>사파리 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
-                  : <>Tap Share (□↑) in Safari, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>}
-              </p>
-            ) : null}
+      <div className="relative mx-auto w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
+        <button
+          type="button"
+          aria-label="설치 안내 닫기"
+          onClick={closePrompt}
+          className="absolute right-4 top-4 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+        >
+          ✕
+        </button>
+        <div className="flex items-center gap-4 pr-8">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
+            🚕
           </div>
-          <button
-            type="button"
-            aria-label="설치 안내 닫기"
-            onClick={closePrompt}
-            className="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-          >
-            ✕
-          </button>
+          <p className="text-sm font-semibold leading-snug text-gray-900">
+            {titleText}
+          </p>
         </div>
+        {isIos ? (
+          <p className="mt-3 text-xs leading-relaxed text-gray-600">
+            {locale === "ko"
+              ? <>사파리 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+              : <>Tap Share (□↑) in Safari, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>}
+          </p>
+        ) : null}
         <button
           type="button"
           onClick={handleInstallClick}
           disabled={isInstalling || (!isIos && !deferredPrompt)}
-          className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {installButtonText}
         </button>
