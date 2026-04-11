@@ -124,9 +124,11 @@ export default function InstallPrompt() {
     const onAppInstalled = () => {
       console.log("PWA: appinstalled 이벤트 감지됨");
       localStorage.setItem(PWA_INSTALLED_KEY, "true");
-      setShowPrompt(false);
+      setInstallSuccess(true);
       setDeferredPrompt(null);
       setIsInstalling(false);
+      // 성공 메시지를 4초간 보여준 뒤 닫기
+      setTimeout(() => setShowPrompt(false), 4000);
     };
 
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
