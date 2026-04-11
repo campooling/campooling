@@ -147,8 +147,9 @@ export default function InstallPrompt() {
     setInstallSuccess(false);
   };
 
+  const [showManualFallback, setShowManualFallback] = useState(false);
+
   const handleInstallClick = async () => {
-    // Android Chrome: deferredPrompt가 있으면 네이티브 설치 프롬프트
     if (deferredPromptRef.current) {
       setIsInstalling(true);
       try {
@@ -165,8 +166,8 @@ export default function InstallPrompt() {
       }
       return;
     }
-    // deferredPrompt 없는 경우 (Samsung Internet, iOS 등): 성공 메시지로 전환
-    setInstallSuccess(true);
+    // deferredPrompt가 없는 경우 → 수동 안내 표시
+    setShowManualFallback(true);
   };
 
   if (!showPrompt) return null;
@@ -208,6 +209,16 @@ export default function InstallPrompt() {
           {locale === "ko"
             ? <>메뉴(≡) → <strong>&quot;현재 페이지 추가&quot;</strong> → <strong>&quot;홈 화면&quot;</strong>을 선택하세요.</>
             : <>Tap Menu (≡) → <strong>&quot;Add page to&quot;</strong> → <strong>&quot;Home screen&quot;</strong>.</>}
+        </p>
+      );
+    }
+    // Android Chrome에서 deferredPrompt가 아직 없을 때 버튼 클릭 → 수동 안내
+    if (showManualFallback && (browser === "android-chrome" || browser === "android-other")) {
+      return (
+        <p className="mt-3 text-xs leading-relaxed text-gray-600">
+          {locale === "ko"
+            ? <>우측 상단 메뉴(⋮) → <strong>&quot;앱 설치&quot;</strong> 또는 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+            : <>Tap Menu (⋮) at the top right → <strong>&quot;Install app&quot;</strong> or <strong>&quot;Add to Home screen&quot;</strong>.</>}
         </p>
       );
     }
