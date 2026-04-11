@@ -16,10 +16,24 @@ const DISMISS_TTL_MS = 60 * 1000; // 1분
 const PWA_INSTALLED_KEY = "pwaInstalled";
 
 type PromptLocale = "ko" | "en";
+type BrowserKind = "ios-safari" | "ios-chrome" | "android-chrome" | "android-samsung" | "android-other" | "desktop";
 
-function isIosDevice() {
-  if (typeof navigator === "undefined") return false;
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+function detectBrowser(): BrowserKind {
+  if (typeof navigator === "undefined") return "desktop";
+  const ua = navigator.userAgent;
+  const isIos = /iphone|ipad|ipod/i.test(ua);
+  if (isIos) {
+    // iOS에서 Chrome, Firefox, Edge 등은 WebKit 기반이지만 "CriOS", "FxiOS", "EdgiOS" 포함
+    if (/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) return "ios-chrome";
+    return "ios-safari";
+  }
+  const isAndroid = /android/i.test(ua);
+  if (isAndroid) {
+    if (/SamsungBrowser/i.test(ua)) return "android-samsung";
+    if (/Chrome/i.test(ua) && !/OPR|Edge/i.test(ua)) return "android-chrome";
+    return "android-other";
+  }
+  return "desktop";
 }
 
 function isInStandaloneMode() {
@@ -39,117 +53,55 @@ function isDismissedWithinTtl() {
   return Date.now() < until;
 }
 
+function shouldBlockPath(pathname: string) {
+  return pathname === "/" || pathname === "/signup" || pathname.startsWith("/auth");
+}
+
+function canShowPrompt(pathname: string) {
+  if (typeof window === "undefined") return false;
+  const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
+  const isPwaInstalled = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
+  const dismissed = isDismissedWithinTtl();
+  const isStandalone = isInStandaloneMode();
+  return isSignupCompleted && !isPwaInstalled && !dismissed && !shouldBlockPath(pathname) && !isStandalone;
+}
+
 export default function InstallPrompt() {
   const pathname = usePathname();
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  // stale closure 없이 항상 최신 deferredPrompt에 접근하기 위한 ref
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
   const [locale, setLocale] = useState<PromptLocale>("en");
-  const [isIos, setIsIos] = useState(false);
+  const [browser, setBrowser] = useState<BrowserKind>("desktop");
   const [showPrompt, setShowPrompt] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const detectedIsIos = isIosDevice();
-    setIsIos(detectedIsIos);
+    const detectedBrowser = detectBrowser();
+    setBrowser(detectedBrowser);
 
     const userType = localStorage.getItem(USER_TYPE_KEY);
     const isKatusa = userType === "KATUSA";
     setLocale(isKatusa ? "ko" : "en");
-    console.log("PWA: user_type 감지", { userType });
 
-    const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-    const isPwaInstalled = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
-    const dismissed = isDismissedWithinTtl();
-    const shouldBlockByPath =
-      pathname === "/" ||
-      pathname === "/signup" ||
-      pathname.startsWith("/auth");
-    const isStandalone = isInStandaloneMode();
-    const hasUserContext = isSignupCompleted;
-    const canShow =
-      hasUserContext && !isPwaInstalled && !dismissed && !shouldBlockByPath && !isStandalone;
-
-    console.log("PWA: 초기 노출 조건", {
-      isSignupCompleted,
-      isPwaInstalled,
-      dismissed,
-      shouldBlockByPath,
-      isStandalone,
-      isIos: detectedIsIos,
-      canShow,
-    });
-
-    // iOS: 조건 충족 시 즉시 표시
-    // Android: beforeinstallprompt 이벤트에서만 표시 (이미 설치된 경우 이벤트 미발생 → 팝업 안 뜸)
-    if (detectedIsIos) {
-      setShowPrompt(canShow);
-    } else {
-      if (!canShow) setShowPrompt(false);
-    }
-
-    if (detectedIsIos && canShow) {
-      console.log("PWA: iOS 모드 활성화");
-    }
+    const show = canShowPrompt(pathname);
+    console.log("PWA: 초기 노출 조건", { browser: detectedBrowser, show, pathname });
+    setShowPrompt(show);
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
-      if (isInStandaloneMode()) {
-        console.log("PWA: beforeinstallprompt 수신했지만 standalone이라 숨김");
-        setShowPrompt(false);
-        return;
-      }
-      // signup_completed 미설정 시에도 ref에 저장 → authReady 이벤트에서 재활용
       deferredPromptRef.current = event as BeforeInstallPromptEvent;
-
-      const signupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-      const isPwaInstalledNow = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
-      const dismissedNow = isDismissedWithinTtl();
-      const blockedNow =
-        pathname === "/" ||
-        pathname === "/signup" ||
-        pathname.startsWith("/auth");
-      if (!signupCompletedNow || isPwaInstalledNow || dismissedNow || blockedNow) {
-        console.log("PWA: 이벤트 감지됐지만 노출 조건 불충족", {
-          signupCompletedNow,
-          isPwaInstalledNow,
-          dismissedNow,
-          blockedNow,
-        });
-        return;
+      console.log("PWA: beforeinstallprompt 이벤트 저장됨");
+      if (canShowPrompt(pathname) && !isInStandaloneMode()) {
+        setShowPrompt(true);
       }
-      setDeferredPrompt(event as BeforeInstallPromptEvent);
-      setShowPrompt(true);
-      console.log("PWA: 이벤트 감지됨 (beforeinstallprompt)");
     };
 
-    // feed/page.tsx에서 signup_completed 복구 후 발송하는 이벤트 수신
     const onAuthReady = () => {
       console.log("PWA: campooling:authReady 이벤트 수신");
-      const isSignupCompletedNow = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-      const isPwaInstalledNow = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
-      const dismissedNow = isDismissedWithinTtl();
-      const standaloneNow = isInStandaloneMode();
-      const blockedNow =
-        pathname === "/" ||
-        pathname === "/signup" ||
-        pathname.startsWith("/auth");
-      const canShowNow =
-        isSignupCompletedNow && !isPwaInstalledNow && !dismissedNow && !blockedNow && !standaloneNow;
-
-      if (!canShowNow) return;
-
-      if (detectedIsIos) {
+      if (canShowPrompt(pathname)) {
         setShowPrompt(true);
-        console.log("PWA: authReady → iOS 팝업 표시");
-      } else if (deferredPromptRef.current) {
-        // beforeinstallprompt가 이미 발생했고 ref에 저장되어 있는 경우
-        setDeferredPrompt(deferredPromptRef.current);
-        setShowPrompt(true);
-        console.log("PWA: authReady → Android 팝업 표시 (저장된 deferredPrompt 사용)");
       }
     };
 
@@ -157,23 +109,18 @@ export default function InstallPrompt() {
       console.log("PWA: appinstalled 이벤트 감지됨");
       localStorage.setItem(PWA_INSTALLED_KEY, "true");
       setInstallSuccess(true);
-      setDeferredPrompt(null);
       setIsInstalling(false);
-      // 성공 메시지를 4초간 보여준 뒤 닫기
       setTimeout(() => setShowPrompt(false), 4000);
     };
 
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
     const onDisplayModeChange = () => {
       if (mediaQuery.matches || isInStandaloneMode()) {
-        console.log("PWA: Standalone 모드 감지로 인해 숨김");
         setShowPrompt(false);
       }
     };
-
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible" && isInStandaloneMode()) {
-        console.log("PWA: Standalone 모드 감지로 인해 숨김");
         setShowPrompt(false);
       }
     };
@@ -196,60 +143,81 @@ export default function InstallPrompt() {
 
   const closePrompt = () => {
     localStorage.setItem(DISMISS_UNTIL_KEY, String(Date.now() + DISMISS_TTL_MS));
-    console.log("PWA: 사용자가 팝업 닫음 (1분 후 재노출 가능)");
     setShowPrompt(false);
     setInstallSuccess(false);
   };
 
   const handleInstallClick = async () => {
-    if (isIos) {
-      setInstallSuccess(true);
-      return;
-    }
-    if (!deferredPrompt) {
-      console.log("PWA: deferredPrompt가 없어 원본 설치 모달을 열 수 없음");
-      return;
-    }
-
-    setIsInstalling(true);
-    console.log("PWA: 설치 요청 시작");
-    try {
-      await deferredPrompt.prompt();
-      const result = await deferredPrompt.userChoice;
-      console.log("PWA: 설치 선택 결과", result);
-      if (result.outcome === "accepted") {
-        localStorage.setItem(PWA_INSTALLED_KEY, "true");
-        setInstallSuccess(true);
-        setTimeout(() => setShowPrompt(false), 4000);
+    // Android Chrome: deferredPrompt가 있으면 네이티브 설치 프롬프트
+    if (deferredPromptRef.current) {
+      setIsInstalling(true);
+      try {
+        await deferredPromptRef.current.prompt();
+        const result = await deferredPromptRef.current.userChoice;
+        if (result.outcome === "accepted") {
+          localStorage.setItem(PWA_INSTALLED_KEY, "true");
+          setInstallSuccess(true);
+          setTimeout(() => setShowPrompt(false), 4000);
+        }
+      } finally {
+        setIsInstalling(false);
+        deferredPromptRef.current = null;
       }
-    } finally {
-      setIsInstalling(false);
-      setDeferredPrompt(null);
+      return;
     }
+    // deferredPrompt 없는 경우 (Samsung Internet, iOS 등): 성공 메시지로 전환
+    setInstallSuccess(true);
   };
 
   if (!showPrompt) return null;
-  // Android에서 beforeinstallprompt 미발생 = 이미 설치됨
-  if (!isIos && !deferredPrompt && !installSuccess) return null;
+
+  const isIos = browser === "ios-safari" || browser === "ios-chrome";
 
   const titleText =
     locale === "ko"
       ? "더 빠르고 편리한 캠풀링 앱을 만나보세요."
       : "Experience Campooling App for a faster & better ride.";
   const installButtonText = isInstalling
-    ? locale === "ko"
-      ? "설치 중..."
-      : "Installing..."
-    : locale === "ko"
-      ? "지금 설치하기"
-      : "Install Now";
+    ? locale === "ko" ? "설치 중..." : "Installing..."
+    : locale === "ko" ? "지금 설치하기" : "Install Now";
+
+  const renderManualGuide = () => {
+    if (installSuccess) return null;
+
+    if (browser === "ios-safari") {
+      return (
+        <p className="mt-3 text-xs leading-relaxed text-gray-600">
+          {locale === "ko"
+            ? <>하단 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+            : <>Tap Share (□↑) at the bottom, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>}
+        </p>
+      );
+    }
+    if (browser === "ios-chrome") {
+      return (
+        <p className="mt-3 text-xs leading-relaxed text-gray-600">
+          {locale === "ko"
+            ? <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong>Safari</strong>로 이 페이지를 열어주세요.</>
+            : <>Open this page in <strong>Safari</strong> to add it to your home screen.</>}
+        </p>
+      );
+    }
+    if (browser === "android-samsung") {
+      return (
+        <p className="mt-3 text-xs leading-relaxed text-gray-600">
+          {locale === "ko"
+            ? <>메뉴(≡) → <strong>&quot;현재 페이지 추가&quot;</strong> → <strong>&quot;홈 화면&quot;</strong>을 선택하세요.</>
+            : <>Tap Menu (≡) → <strong>&quot;Add page to&quot;</strong> → <strong>&quot;Home screen&quot;</strong>.</>}
+        </p>
+      );
+    }
+    return null;
+  };
 
   return (
     <div
       className="fixed left-0 right-0 z-[130] px-4"
-      style={{
-        bottom: "calc(84px + env(safe-area-inset-bottom))",
-      }}
+      style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
     >
       <div className="relative mx-auto w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
         <button
@@ -268,13 +236,7 @@ export default function InstallPrompt() {
             {titleText}
           </p>
         </div>
-        {isIos && !installSuccess ? (
-          <p className="mt-3 text-xs leading-relaxed text-gray-600">
-            {locale === "ko"
-              ? <>사파리 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
-              : <>Tap Share (□↑) in Safari, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>}
-          </p>
-        ) : null}
+        {renderManualGuide()}
         {installSuccess ? (
           <div className="mt-4 flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
             <span>✅</span>
@@ -288,7 +250,7 @@ export default function InstallPrompt() {
           <button
             type="button"
             onClick={handleInstallClick}
-            disabled={isInstalling || (!isIos && !deferredPrompt)}
+            disabled={isInstalling}
             className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {installButtonText}
