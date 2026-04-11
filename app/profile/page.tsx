@@ -6,10 +6,29 @@ import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
 import { createClient } from '@/lib/supabase/client';
 
+type MyPod = {
+  id: string;
+  origin: string;
+  destination: string;
+  departure_time: string;
+  capacity: number;
+  member_count: number;
+};
+
+type MembershipRow = {
+  pod: (Omit<MyPod, 'member_count'> & { member_count?: Array<{ count?: number }> }) | null;
+};
+
+function hasPod(
+  pod: MembershipRow['pod']
+): pod is NonNullable<MembershipRow['pod']> {
+  return pod !== null;
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
-  const [myPods, setMyPods] = useState<any[]>([]);
+  const [myPods, setMyPods] = useState<MyPod[]>([]);
   const [displayName, setDisplayName] = useState('Guest');
   const [displayRole, setDisplayRole] = useState('—');
   const [loading, setLoading] = useState(true);
@@ -49,22 +68,22 @@ export default function ProfilePage() {
 
       if (memberships) {
         const now = Date.now();
-        const formattedPods = memberships
-          .map((m: any) => m.pod)
-          .filter(Boolean)
-          .map((p: any) => ({
+        const formattedPods = (memberships as MembershipRow[])
+          .map((m) => m.pod)
+          .filter(hasPod)
+          .map((p) => ({
             ...p,
-            member_count: p.member_count[0]?.count || 0
+            member_count: p.member_count?.[0]?.count || 0
           }))
           // 6시간 지난 방은 프로필에서도 제거(그리고 status 만료 처리)
-          .filter((p: any) => {
+          .filter((p) => {
             const ms = new Date(p.departure_time).getTime();
             return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > now;
           })
-          .sort((a: any, b: any) => 
+          .sort((a, b) => 
             new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
           );
-        setMyPods(formattedPods);
+        setMyPods(formattedPods as MyPod[]);
       }
       setLoading(false);
     };
@@ -147,19 +166,7 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* 3. 메뉴 리스트 (미니멀) */}
-        <div className="mt-4 rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <button className="flex w-full items-center justify-between border-b border-gray-100 px-6 py-4 text-left transition-colors hover:bg-gray-50">
-            <span className="font-semibold text-gray-700">Payment Methods</span>
-            <ChevronRight className="h-5 w-5 text-gray-400" />
-          </button>
-          <button className="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-gray-50">
-            <span className="font-semibold text-gray-700">Ride History</span>
-            <ChevronRight className="h-5 w-5 text-gray-400" />
-          </button>
-        </div>
-
-        {/* 4. 로그아웃 버튼 */}
+        {/* 3. 로그아웃 버튼 */}
         <button 
           onClick={handleLogout}
           className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-100 bg-red-50 py-4 font-bold text-red-600 transition-colors hover:bg-red-100 active:scale-95"

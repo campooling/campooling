@@ -33,6 +33,13 @@ export default function SignupPage() {
         .single();
 
       if (profile?.nickname) {
+        // 캐시/데이터 삭제로 localStorage가 비워진 경우 복구
+        if (typeof window !== "undefined") {
+          localStorage.setItem("signup_completed", "true");
+          if (profile.role) {
+            localStorage.setItem("user_type", profile.role);
+          }
+        }
         router.replace("/feed");
       } else {
         setLoading(false);
@@ -64,6 +71,11 @@ export default function SignupPage() {
     if (error) {
       alert("Error saving profile: " + error.message);
       return;
+    }
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem("user_type", role);
+      localStorage.setItem("signup_completed", "true");
     }
 
     router.push("/feed");

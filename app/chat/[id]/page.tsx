@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Send, Menu, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -22,13 +22,36 @@ type Member = {
   role?: string | null;
 };
 
+type Message = {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  profiles?: { nickname?: string } | null;
+};
+
+type PodMemberRow = {
+  user_id: string;
+  profiles?: { nickname?: string; role?: string | null } | null;
+};
+
+type RealtimeInsertPayload = {
+  new: {
+    id: string;
+    user_id: string;
+    content: string;
+    created_at: string;
+    [key: string]: unknown;
+  };
+};
+
 export default function ChatRoomPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const roomId = params?.id ?? '';
   const [supabase] = useState(() => (typeof window === 'undefined' ? null : createClient()));
 
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [pod, setPod] = useState<Pod | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -57,7 +80,7 @@ export default function ChatRoomPage() {
     [podTimeMs, now]
   );
 
-  const fetchPodDetails = async () => {
+  const fetchPodDetails = useCallback(async () => {
     if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id || null);
@@ -103,7 +126,7 @@ export default function ChatRoomPage() {
 
     if (memberRows) {
       setMembers(
-        memberRows.map((m: any) => ({
+        (memberRows as PodMemberRow[]).map((m) => ({
           id: m.user_id,
           nickname: m.profiles?.nickname || 'User',
           role: m.profiles?.role || null,
@@ -111,11 +134,13 @@ export default function ChatRoomPage() {
       );
     }
     setLoading(false);
-  };
+  }, [roomId, router, supabase]);
 
   useEffect(() => {
     if (!supabase) return;
-    fetchPodDetails();
+    const initialFetchTimer = window.setTimeout(() => {
+      void fetchPodDetails();
+    }, 0);
 
     // Subscribe to new messages (빌드 에러를 막기 위해 payload: any 적용!)
     const messageChannel = supabase
@@ -125,7 +150,7 @@ export default function ChatRoomPage() {
         schema: 'public', 
         table: 'messages', 
         filter: `pod_id=eq.${roomId}` 
-      }, async (payload: any) => { 
+      }, async (payload: RealtimeInsertPayload) => { 
         // Fetch profile for the new message
         const { data: profileData } = await supabase
           .from('profiles')
@@ -159,10 +184,11 @@ export default function ChatRoomPage() {
       .subscribe();
 
     return () => {
+      window.clearTimeout(initialFetchTimer);
       supabase.removeChannel(messageChannel);
       supabase.removeChannel(podChannel);
     };
-  }, [roomId, supabase]);
+  }, [roomId, supabase, fetchPodDetails]);
 
   useEffect(() => {
     const el = messagesContainerRef.current;
