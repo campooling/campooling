@@ -1,7 +1,7 @@
-declare const self: ServiceWorkerGlobalScope;
+const sw = self as unknown as ServiceWorkerGlobalScope;
 
-self.addEventListener("message", (event) => {
+sw.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
-    self.skipWaiting();
+    sw.skipWaiting();
   }
 });
