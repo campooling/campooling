@@ -11,4 +11,7 @@ export default withPWA({
   disable: process.env.NODE_ENV === "development",
   skipWaiting: true,
   clientsClaim: true,
+  dynamicStartUrl: false,
+  cacheOnFrontEndNav: false,
+  reloadOnOnline: true,
 })(nextConfig);

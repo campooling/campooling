@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MapPin, CalendarDays, Users, Clock, X } from 'lucide-react'; 
 import BottomNav from '../components/BottomNav';
@@ -12,7 +12,6 @@ type AvailableDate = {
   fullDate: string;
 };
 
-// Mock Data: 험프리스 주변 거점
 const HumphreysLocations = [
   'Pyeongtaek St.',
   'Walk in gate',
@@ -20,6 +19,25 @@ const HumphreysLocations = [
   'Jije St.',
   'Other',
 ];
+
+function getLocationValidationError(input: string): string | null {
+  const value = input.trim();
+  if (!value) return "Please enter a location.";
+  if (/[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(value)) return "Please write in English.";
+  const profanityRegex =
+    /f[^a-zA-Z0-9]*u[^a-zA-Z0-9]*c[^a-zA-Z0-9]*k|s[^a-zA-Z0-9]*e[^a-zA-Z0-9]*x|b[^a-zA-Z0-9]*i[^a-zA-Z0-9]*t[^a-zA-Z0-9]*c[^a-zA-Z0-9]*h|s[^a-zA-Z0-9]*h[^a-zA-Z0-9]*i[^a-zA-Z0-9]*t|a[^a-zA-Z0-9]*s[^a-zA-Z0-9]*s/i;
+  if (profanityRegex.test(value)) return "Please enter a valid location.";
+  if (/[^a-zA-Z0-9\s]{2,}/.test(value)) return "Please enter a valid location.";
+  if (/([a-zA-Z])\1{3,}/.test(value)) return "Please enter a valid location.";
+  if (/^[A-Za-z]{1,2}\d{3,6}$/.test(value)) return null;
+  const cleaned = value.replace(/\s+/g, "");
+  const alphaCount = (cleaned.match(/[a-zA-Z]/g) || []).length;
+  if (alphaCount < Math.ceil(cleaned.length * 0.5)) return "Please enter a valid location.";
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (/^(mom|mother|dad|father|baby|love|honey|hello|hi)$/i.test(normalized))
+    return "Please enter a valid location.";
+  return null;
+}
 
 // 날짜 형식 지정 유틸리티 (월 11, 화 12 등)
 const getFormattedDate = (date: Date) => {
@@ -44,10 +62,14 @@ export default function CreateRoomPage() {
   const [availableDates, setAvailableDates] = useState<AvailableDate[]>([]);
   const [selectedDate, setSelectedDate] = useState(''); // yyyy-mm-dd
 
-  // 2. 출발/도착지 선택 (사진 2 참조: 세련된 노선도 UI + 모달)
+  // 2. 출발/도착지 선택
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [activeLocationModal, setActiveLocationModal] = useState<'origin' | 'destination' | null>(null);
+  const [otherInput, setOtherInput] = useState('');
+  const [otherError, setOtherError] = useState('');
+  const [showOtherInput, setShowOtherInput] = useState(false);
+  const otherInputRef = useRef<HTMLInputElement>(null);
 
   // 3. 시간 선택 (사진 3 참조: 숫자 직접 입력)
   const [hour, setHour] = useState('19'); // 기본 19시
@@ -72,20 +94,11 @@ export default function CreateRoomPage() {
     }
   }, []);
 
-  // Other 입력 페이지에서 돌아왔을 때 값 반영
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const originCustom = sessionStorage.getItem('customLocationOrigin');
-    if (originCustom) {
-      setOrigin(originCustom);
+    if (showOtherInput && otherInputRef.current) {
+      otherInputRef.current.focus();
     }
-
-    const destinationCustom = sessionStorage.getItem('customLocationDestination');
-    if (destinationCustom) {
-      setDestination(destinationCustom);
-    }
-  }, []);
+  }, [showOtherInput]);
 
   // --- 핸들러 (Handlers) ---
 
@@ -112,13 +125,11 @@ export default function CreateRoomPage() {
     }
   };
 
-  // 장소 선택 처리
   const handleLocationSelect = (location: string) => {
-    if (location === 'Other' && activeLocationModal) {
-      if (origin) sessionStorage.setItem('customLocationOrigin', origin);
-      if (destination) sessionStorage.setItem('customLocationDestination', destination);
-      router.push(`/create/other-location?type=${activeLocationModal}`);
-      setActiveLocationModal(null);
+    if (location === 'Other') {
+      setOtherInput('');
+      setOtherError('');
+      setShowOtherInput(true);
       return;
     }
     if (activeLocationModal === 'origin') {
@@ -126,7 +137,29 @@ export default function CreateRoomPage() {
     } else if (activeLocationModal === 'destination') {
       setDestination(location);
     }
-    setActiveLocationModal(null); // 모달 닫기
+    setActiveLocationModal(null);
+  };
+
+  const handleOtherSave = () => {
+    const v = otherInput.trim();
+    const err = getLocationValidationError(v);
+    if (err) {
+      setOtherError(err);
+      return;
+    }
+    if (activeLocationModal === 'origin') {
+      setOrigin(v);
+    } else if (activeLocationModal === 'destination') {
+      setDestination(v);
+    }
+    setShowOtherInput(false);
+    setActiveLocationModal(null);
+  };
+
+  const handleOtherCancel = () => {
+    setShowOtherInput(false);
+    setOtherInput('');
+    setOtherError('');
   };
 
   // 최종 방 개설 처리
@@ -188,7 +221,6 @@ export default function CreateRoomPage() {
     }
   };
 
-  // --- UI 컴포넌트 (장소 선택 모달) ---
   const LocationSelectionModal = () => {
     if (!activeLocationModal) return null;
 
@@ -197,25 +229,72 @@ export default function CreateRoomPage() {
     return (
       <div className="fixed inset-0 z-[100] flex flex-col bg-white antialiased">
         <header className="flex items-center gap-4 border-b bg-white px-6 py-4 shadow-sm">
-          <button onClick={() => setActiveLocationModal(null)} className="text-gray-600 hover:text-indigo-600">
+          <button onClick={() => { setActiveLocationModal(null); setShowOtherInput(false); }} className="text-gray-600 hover:text-indigo-600">
             <X className="h-6 w-6" />
           </button>
         </header>
         <main className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
           {HumphreysLocations.map((loc) => {
             const isDisabled = loc !== 'Other' && loc === otherLocation;
-            return (
-                <button 
-                  key={loc}
-                  type="button"
-                  onClick={() => handleLocationSelect(loc)}
-                  disabled={isDisabled}
-                  className={`w-full text-left rounded-2xl border p-5 transition-all active:scale-95 flex items-center gap-4 ${isDisabled ? 'bg-gray-100 border-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
-                >
+            const isOther = loc === 'Other';
+
+            if (isOther && showOtherInput) {
+              return (
+                <div key={loc} className="rounded-2xl border border-indigo-300 bg-indigo-50/50 p-5">
+                  <div className="flex items-center gap-3 mb-3">
                     <MapPin className={`h-5 w-5 shrink-0 ${activeLocationModal === 'origin' ? 'text-indigo-500' : 'text-purple-500'}`} />
-                    <span className={`text-base font-semibold ${isDisabled ? 'text-gray-400' : 'text-gray-900'}`}>{loc}</span>
-                </button>
-            )
+                    <span className="text-base font-semibold text-gray-900">Other</span>
+                  </div>
+                  <input
+                    ref={otherInputRef}
+                    value={otherInput}
+                    onChange={(e) => {
+                      setOtherInput(e.target.value);
+                      if (otherError) {
+                        const err = getLocationValidationError(e.target.value);
+                        setOtherError(err ?? '');
+                      }
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleOtherSave(); }}
+                    placeholder="Type location name..."
+                    className={`w-full rounded-xl border bg-white px-4 py-3 text-base font-semibold text-gray-900 outline-none focus:border-indigo-500 ${otherError ? 'border-red-400' : 'border-gray-200'}`}
+                  />
+                  {otherError && (
+                    <p className="mt-1.5 pl-1 text-xs font-semibold text-red-500">{otherError}</p>
+                  )}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleOtherCancel}
+                      className="flex-1 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-bold text-gray-600 active:scale-95"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOtherSave}
+                      disabled={!otherInput.trim()}
+                      className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-bold text-white active:scale-95 disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={loc}
+                type="button"
+                onClick={() => handleLocationSelect(loc)}
+                disabled={isDisabled}
+                className={`w-full text-left rounded-2xl border p-5 transition-all active:scale-95 flex items-center gap-4 ${isDisabled ? 'bg-gray-100 border-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
+              >
+                <MapPin className={`h-5 w-5 shrink-0 ${activeLocationModal === 'origin' ? 'text-indigo-500' : 'text-purple-500'}`} />
+                <span className={`text-base font-semibold ${isDisabled ? 'text-gray-400' : 'text-gray-900'}`}>{loc}</span>
+              </button>
+            );
           })}
         </main>
       </div>

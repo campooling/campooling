@@ -3,3 +3,15 @@ self.addEventListener("message", (event) => {
     self.skipWaiting();
   }
 });
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys
+          .filter((key) => key.startsWith("others") || key.startsWith("start-url"))
+          .map((key) => caches.delete(key))
+      )
+    )
+  );
+});
