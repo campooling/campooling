@@ -31,7 +31,7 @@ const COPY = {
     done: "설치가 완료되었습니다. 홈 화면에서 열어주세요!",
     chromeGuide: '우측 상단 메뉴(⋮)를 누른 뒤 "앱 설치" 또는 "홈 화면에 추가"를 선택하세요.',
     samsungGuide: '메뉴(≡) → "현재 페이지 추가" → "홈 화면"을 선택하세요.',
-    iosSafariGuide: '하단 공유 버튼(□↑)을 누른 뒤 "홈 화면에 추가"를 선택하세요.',
+    iosSafariGuide: '하단 점 세 개(···) → "공유" → "더보기" → "홈 화면에 추가"를 선택하세요.',
     iosChromeGuide: "Safari에서 열어야 홈 화면에 추가할 수 있습니다. Safari로 이 페이지를 열어주세요.",
   },
   en: {
@@ -41,7 +41,7 @@ const COPY = {
     done: "Installation complete. Open it from your home screen!",
     chromeGuide: 'Tap the menu (⋮) at the top right, then select "Install app" or "Add to Home screen".',
     samsungGuide: 'Tap Menu (≡) → "Add page to" → "Home screen".',
-    iosSafariGuide: 'Tap Share (□↑) at the bottom, then choose "Add to Home Screen".',
+    iosSafariGuide: 'Tap the three dots (···) at the bottom → "Share" → "More" → "Add to Home Screen".',
     iosChromeGuide: "Open this page in Safari to add it to your home screen.",
   },
 } as const;
@@ -361,9 +361,9 @@ export default function InstallPrompt() {
         {!success && isIos && isIosSafari() && (
           <p className="mt-3 text-[13px] font-medium leading-relaxed text-gray-700">
             {locale === "ko" ? (
-              <>하단 공유 버튼(□↑)을 누른 뒤 <strong className="text-gray-950">&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+              <>하단 <strong className="text-gray-950">점 세 개(···)</strong> → <strong className="text-gray-950">&quot;공유&quot;</strong> → <strong className="text-gray-950">&quot;더보기&quot;</strong> → <strong className="text-gray-950">&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
             ) : (
-              <>Tap <strong className="text-gray-950">Share (□↑)</strong> at the bottom, then choose <strong className="text-gray-950">&quot;Add to Home Screen&quot;</strong>.</>
+              <>Tap <strong className="text-gray-950">the three dots (···)</strong> at the bottom → <strong className="text-gray-950">&quot;Share&quot;</strong> → <strong className="text-gray-950">&quot;More&quot;</strong> → <strong className="text-gray-950">&quot;Add to Home Screen&quot;</strong>.</>
             )}
           </p>
         )}
