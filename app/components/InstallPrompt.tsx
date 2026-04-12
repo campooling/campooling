@@ -28,7 +28,6 @@ const COPY = {
     title: "캠풀링 앱 설치",
     subtitle: "더 빠르고 쾌적하게 이용하세요",
     install: "지금 설치",
-    installing: "설치 중...",
     done: "설치가 완료되었습니다. 홈 화면에서 열어주세요!",
     samsungGuide: '메뉴(≡) → "현재 페이지 추가" → "홈 화면"을 선택하세요.',
     samsungFallback: '자동 설치에 실패했습니다. 메뉴(≡) → "현재 페이지 추가" → "홈 화면"을 선택해주세요.',
@@ -39,7 +38,6 @@ const COPY = {
     title: "Get Campooling App",
     subtitle: "Install for a better experience",
     install: "Install Now",
-    installing: "Installing...",
     done: "Installation complete. Open it from your home screen!",
     samsungGuide: 'Tap Menu (≡) → "Add page to" → "Home screen".',
     samsungFallback: 'Auto-install failed. Tap Menu (≡) → "Add page to" → "Home screen".',
@@ -124,7 +122,6 @@ export default function InstallPrompt() {
   const [visible, setVisible] = useState(false);
   const [platform, setPlatform] = useState<Platform>("desktop");
   const [locale, setLocale] = useState<Locale>("en");
-  const [installing, setInstalling] = useState(false);
   const [success, setSuccess] = useState(false);
   
 
@@ -141,7 +138,6 @@ export default function InstallPrompt() {
       log("ERROR: deferredRef is null");
       return;
     }
-    setInstalling(true);
     log("Triggering native install prompt");
     try {
       await prompt.prompt();
@@ -155,14 +151,13 @@ export default function InstallPrompt() {
       if (result.outcome === "accepted") {
         localStorage.setItem(PWA_INSTALLED_KEY, "true");
         setSuccess(true);
-        setTimeout(() => setVisible(false), 8000);
+        setTimeout(() => setVisible(false), 12000);
       } else {
         setVisible(false);
       }
     } catch (err) {
       log("Install error", err);
     } finally {
-      setInstalling(false);
       deferredRef.current = null;
     }
   }, []);
@@ -207,8 +202,7 @@ export default function InstallPrompt() {
       log("appinstalled event fired");
       localStorage.setItem(PWA_INSTALLED_KEY, "true");
       setSuccess(true);
-      setInstalling(false);
-      setTimeout(() => setVisible(false), 8000);
+      setTimeout(() => setVisible(false), 12000);
     };
 
     const onAuthReady = () => {
@@ -342,10 +336,9 @@ export default function InstallPrompt() {
           <button
             type="button"
             onClick={handleInstall}
-            disabled={installing}
-            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98]"
           >
-            {installing ? t.installing : t.install}
+            {t.install}
           </button>
         )}
       </div>
