@@ -20,8 +20,6 @@ const DISMISS_KEY = "installPromptDismissUntil";
 const DISMISS_TTL_MS = 24 * 60 * 60 * 1000;
 const PWA_INSTALLED_KEY = "pwaInstalled";
 
-const FALLBACK_DELAY_MS = 3000;
-
 type Platform = "android-chrome" | "android-samsung" | "android-other" | "ios" | "desktop";
 type Locale = "ko" | "en";
 
@@ -125,27 +123,37 @@ function canShow(pathname: string): boolean {
 export default function InstallPrompt() {
   const pathname = usePathname();
   const deferredRef = useRef<BeforeInstallPromptEvent | null>(null);
-  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [visible, setVisible] = useState(false);
   const [platform, setPlatform] = useState<Platform>("desktop");
   const [locale, setLocale] = useState<Locale>("en");
   const [success, setSuccess] = useState(false);
-  const [hasNativePrompt, setHasNativePrompt] = useState(false);
+  const [showManualGuide, setShowManualGuide] = useState(false);
 
   const dismiss = useCallback(() => {
     localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_TTL_MS));
     setVisible(false);
     setSuccess(false);
+    setShowManualGuide(false);
     log("User dismissed");
   }, []);
 
   const handleInstall = useCallback(async () => {
+    // Last chance: check global capture
+    const win = window as Window & { __pwaPromptEvent?: BeforeInstallPromptEvent | null };
+    if (!deferredRef.current && win.__pwaPromptEvent) {
+      deferredRef.current = win.__pwaPromptEvent;
+      win.__pwaPromptEvent = null;
+      log("Recovered prompt from global capture at click time");
+    }
+
     const prompt = deferredRef.current;
     if (!prompt) {
-      log("ERROR: deferredRef is null");
+      log("No native prompt available — switching to manual guide");
+      setShowManualGuide(true);
       return;
     }
+
     log("Triggering native install prompt");
     try {
       await prompt.prompt();
@@ -164,7 +172,8 @@ export default function InstallPrompt() {
         setVisible(false);
       }
     } catch (err) {
-      log("Install error", err);
+      log("Install error — switching to manual guide", err);
+      setShowManualGuide(true);
     } finally {
       deferredRef.current = null;
     }
@@ -193,53 +202,30 @@ export default function InstallPrompt() {
       return;
     }
 
-    // Check if beforeinstallprompt was captured globally before React mounted
+    // Recover globally captured event (from <Script beforeInteractive>)
     const win = window as Window & { __pwaPromptEvent?: BeforeInstallPromptEvent | null };
     if (win.__pwaPromptEvent) {
       deferredRef.current = win.__pwaPromptEvent;
       win.__pwaPromptEvent = null;
-      setHasNativePrompt(true);
-      setVisible(true);
-      log("beforeinstallprompt recovered from global capture — Install button enabled");
+      log("beforeinstallprompt recovered from global capture");
     }
 
-    // ALL platforms: show popup. The content adapts based on hasNativePrompt.
-    // For platforms that might get beforeinstallprompt (Chrome/Desktop),
-    // wait a short delay before showing so the event has time to fire.
-    if (!deferredRef.current) {
-      if (detected === "android-chrome" || detected === "android-other" || detected === "desktop") {
-        fallbackTimerRef.current = setTimeout(() => {
-          if (canShow(pathname)) {
-            setVisible(true);
-            log("Showing popup (beforeinstallprompt fallback timer expired)");
-          }
-        }, FALLBACK_DELAY_MS);
-      } else {
-        setVisible(true);
-        log(`Showing popup immediately (${detected})`);
-      }
-    }
+    // Show popup immediately for ALL platforms — no delay
+    setVisible(true);
+    log(`Showing popup immediately (${detected})`);
 
     const onBeforeInstall = (e: Event) => {
       e.preventDefault();
       deferredRef.current = e as BeforeInstallPromptEvent;
-      setHasNativePrompt(true);
-      log("beforeinstallprompt captured — Install button enabled");
-
-      if (fallbackTimerRef.current) {
-        clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
-      }
-
-      if (canShow(pathname)) {
-        setVisible(true);
-      }
+      setShowManualGuide(false);
+      log("beforeinstallprompt captured — native prompt ready");
     };
 
     const onAppInstalled = () => {
       log("appinstalled event fired");
       localStorage.setItem(PWA_INSTALLED_KEY, "true");
       setSuccess(true);
+      setShowManualGuide(false);
       setTimeout(() => setVisible(false), 12000);
     };
 
@@ -264,7 +250,6 @@ export default function InstallPrompt() {
     document.addEventListener("visibilitychange", onVisChange);
 
     return () => {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
       window.removeEventListener("appinstalled", onAppInstalled);
       window.removeEventListener("campooling:authReady", onAuthReady);
@@ -369,8 +354,8 @@ export default function InstallPrompt() {
           </p>
         )}
 
-        {/* Chrome/Desktop: Install button (if native prompt available) */}
-        {!success && isChrome && hasNativePrompt && (
+        {/* Chrome/Desktop: Install button (always shown first) */}
+        {!success && isChrome && !showManualGuide && (
           <button
             type="button"
             onClick={handleInstall}
@@ -380,8 +365,8 @@ export default function InstallPrompt() {
           </button>
         )}
 
-        {/* Chrome/Desktop: manual guide (if native prompt NOT available) */}
-        {!success && isChrome && !hasNativePrompt && (
+        {/* Chrome/Desktop: manual guide (shown only after clicking Install and native prompt unavailable) */}
+        {!success && isChrome && showManualGuide && (
           <p className="mt-3 text-[13px] font-medium leading-relaxed text-gray-700">
             {t.chromeGuide}
           </p>
