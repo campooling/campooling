@@ -98,8 +98,13 @@ function canShow(pathname: string): boolean {
     return false;
   }
   if (localStorage.getItem(PWA_INSTALLED_KEY) === "true") {
-    log("Already installed — suppressed");
-    return false;
+    if (!isStandalone()) {
+      localStorage.removeItem(PWA_INSTALLED_KEY);
+      log("pwaInstalled flag reset — app was uninstalled");
+    } else {
+      log("Already installed — suppressed");
+      return false;
+    }
   }
   if (isDismissed()) {
     log("Dismissed recently — suppressed");
