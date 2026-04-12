@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { usePathname } from "next/navigation";
+
+// ╔═══════════════════════════════════════════════════════════════╗
+// ║  FORCE_TEST_MODE — true면 localStorage 닫기 기록을 무시합니다  ║
+// ╚═══════════════════════════════════════════════════════════════╝
+const FORCE_TEST_MODE = false;
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -11,238 +16,332 @@ interface BeforeInstallPromptEvent extends Event {
 
 const SIGNUP_COMPLETED_KEY = "signup_completed";
 const USER_TYPE_KEY = "user_type";
-const DISMISS_UNTIL_KEY = "installPromptDismissUntil";
-const DISMISS_TTL_MS = 60 * 1000;
+const DISMISS_KEY = "installPromptDismissUntil";
+const DISMISS_TTL_MS = 24 * 60 * 60 * 1000;
 const PWA_INSTALLED_KEY = "pwaInstalled";
 
-type PromptLocale = "ko" | "en";
-type BrowserKind = "ios-safari" | "ios-chrome" | "android-chrome" | "android-samsung" | "android-other" | "desktop";
+type Platform = "android" | "ios" | "desktop";
+type Locale = "ko" | "en";
 
-function detectBrowser(): BrowserKind {
+const COPY = {
+  ko: {
+    title: "캠풀링 앱 설치",
+    subtitle: "더 빠르고 쾌적하게 이용하세요",
+    install: "지금 설치",
+    installing: "설치 중...",
+    done: "설치가 완료되었습니다. 홈 화면에서 열어주세요!",
+    iosGuide:
+      '하단 공유 버튼(□↑)을 누른 뒤 "홈 화면에 추가"를 선택하세요.',
+    iosChromeGuide:
+      "Safari에서 열어야 홈 화면에 추가할 수 있습니다. Safari로 이 페이지를 열어주세요.",
+  },
+  en: {
+    title: "Get Campooling App",
+    subtitle: "Install for a better experience",
+    install: "Install Now",
+    installing: "Installing...",
+    done: "Installation complete. Open it from your home screen!",
+    iosGuide:
+      'Tap Share (□↑) at the bottom, then choose "Add to Home Screen".',
+    iosChromeGuide:
+      "Open this page in Safari to add it to your home screen.",
+  },
+} as const;
+
+function log(message: string, data?: unknown) {
+  if (data !== undefined) {
+    console.log(`[PWA] ${message}`, data);
+  } else {
+    console.log(`[PWA] ${message}`);
+  }
+}
+
+function detectPlatform(): Platform {
   if (typeof navigator === "undefined") return "desktop";
   const ua = navigator.userAgent;
-  const isIos = /iphone|ipad|ipod/i.test(ua);
-  if (isIos) {
-    if (/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) return "ios-chrome";
-    return "ios-safari";
-  }
-  if (/android/i.test(ua)) {
-    if (/SamsungBrowser/i.test(ua)) return "android-samsung";
-    if (/Chrome/i.test(ua) && !/OPR|Edge/i.test(ua)) return "android-chrome";
-    return "android-other";
-  }
+  if (/iphone|ipad|ipod/i.test(ua)) return "ios";
+  if (/android/i.test(ua)) return "android";
   return "desktop";
 }
 
-function isInStandaloneMode() {
+function isStandalone(): boolean {
   if (typeof window === "undefined") return false;
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+    (window.navigator as Navigator & { standalone?: boolean }).standalone ===
+      true
   );
 }
 
-function isDismissedWithinTtl() {
+function isIosSafari(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const isIos = /iphone|ipad|ipod/i.test(ua);
+  const isNonSafari = /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+  return isIos && !isNonSafari;
+}
+
+function isDismissed(): boolean {
+  if (FORCE_TEST_MODE) return false;
   if (typeof window === "undefined") return false;
-  const raw = localStorage.getItem(DISMISS_UNTIL_KEY);
+  const raw = localStorage.getItem(DISMISS_KEY);
   if (!raw) return false;
   const until = Number(raw);
-  if (!Number.isFinite(until)) return false;
-  return Date.now() < until;
+  return Number.isFinite(until) && Date.now() < until;
 }
 
-function canShowPrompt(pathname: string) {
+function canShow(pathname: string): boolean {
   if (typeof window === "undefined") return false;
-  const isSignupCompleted = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
-  const isPwaInstalled = localStorage.getItem(PWA_INSTALLED_KEY) === "true";
-  const dismissed = isDismissedWithinTtl();
-  const isStandalone = isInStandaloneMode();
-  return isSignupCompleted && !isPwaInstalled && !dismissed && !isStandalone &&
-    pathname !== "/" && pathname !== "/signup" && !pathname.startsWith("/auth");
-}
-
-// beforeinstallprompt를 지원하는 브라우저: 이벤트 도착 후에만 팝업 표시
-function supportsNativeInstall(b: BrowserKind) {
-  return b === "android-chrome" || b === "android-other" || b === "desktop";
+  if (isStandalone()) {
+    log("Standalone mode detected — prompt suppressed");
+    return false;
+  }
+  if (localStorage.getItem(PWA_INSTALLED_KEY) === "true") {
+    log("Already installed flag found — prompt suppressed");
+    return false;
+  }
+  if (isDismissed()) {
+    log("User dismissed recently — prompt suppressed");
+    return false;
+  }
+  const isSignedUp = localStorage.getItem(SIGNUP_COMPLETED_KEY) === "true";
+  if (!isSignedUp) {
+    log("Signup not completed — prompt suppressed");
+    return false;
+  }
+  const blocked = pathname === "/" || pathname === "/signup" || pathname.startsWith("/auth");
+  if (blocked) {
+    log(`Blocked route (${pathname}) — prompt suppressed`);
+    return false;
+  }
+  return true;
 }
 
 export default function InstallPrompt() {
   const pathname = usePathname();
-  const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
-  const [isInstalling, setIsInstalling] = useState(false);
-  const [installSuccess, setInstallSuccess] = useState(false);
-  const [locale, setLocale] = useState<PromptLocale>("en");
-  const [browser, setBrowser] = useState<BrowserKind>("desktop");
-  const [showPrompt, setShowPrompt] = useState(false);
+  const deferredRef = useRef<BeforeInstallPromptEvent | null>(null);
+
+  const [visible, setVisible] = useState(false);
+  const [platform, setPlatform] = useState<Platform>("desktop");
+  const [locale, setLocale] = useState<Locale>("en");
+  const [installing, setInstalling] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const dismiss = useCallback(() => {
+    localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_TTL_MS));
+    setVisible(false);
+    setSuccess(false);
+    log("User dismissed the prompt");
+  }, []);
+
+  const handleInstall = useCallback(async () => {
+    const prompt = deferredRef.current;
+    if (!prompt) return;
+    setInstalling(true);
+    log("Triggering native install prompt");
+    try {
+      await prompt.prompt();
+      const { outcome } = await prompt.userChoice;
+      log("User choice", outcome);
+      if (outcome === "accepted") {
+        localStorage.setItem(PWA_INSTALLED_KEY, "true");
+        setSuccess(true);
+        setTimeout(() => setVisible(false), 4000);
+      }
+    } finally {
+      setInstalling(false);
+      deferredRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const detected = detectBrowser();
-    setBrowser(detected);
+    const detected = detectPlatform();
+    setPlatform(detected);
+    log(`Platform detected: ${detected}`);
 
     const userType = localStorage.getItem(USER_TYPE_KEY);
-    setLocale(userType === "KATUSA" ? "ko" : "en");
+    const lang: Locale = userType === "KATUSA" ? "ko" : "en";
+    setLocale(lang);
+    log(`Locale set to: ${lang} (user_type=${userType})`);
 
-    const conditions = canShowPrompt(pathname);
-
-    // Android Chrome / desktop: beforeinstallprompt 이벤트 대기 (즉시 표시 안 함)
-    // iOS / Samsung: 조건 충족 시 즉시 표시
-    if (!supportsNativeInstall(detected)) {
-      setShowPrompt(conditions);
+    if (isStandalone()) {
+      log("Already running as installed PWA — no prompt");
+      return;
     }
 
-    const onBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      deferredPromptRef.current = event as BeforeInstallPromptEvent;
-      console.log("PWA: beforeinstallprompt 이벤트 수신");
-      if (canShowPrompt(pathname) && !isInStandaloneMode()) {
-        setShowPrompt(true);
-      }
-    };
+    const eligible = canShow(pathname);
 
-    const onAuthReady = () => {
-      if (!canShowPrompt(pathname)) return;
-      // 네이티브 설치 지원 브라우저: deferredPrompt가 있어야만 표시
-      if (supportsNativeInstall(detected)) {
-        if (deferredPromptRef.current) setShowPrompt(true);
-      } else {
-        setShowPrompt(true);
+    if (detected === "ios") {
+      log(isIosSafari() ? "iOS Safari detected" : "iOS non-Safari detected");
+      if (eligible) {
+        setVisible(true);
+        log("Showing iOS manual guide");
+      }
+    }
+
+    const onBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      deferredRef.current = e as BeforeInstallPromptEvent;
+      log("Install event captured (beforeinstallprompt)");
+      if (canShow(pathname)) {
+        setVisible(true);
+        log("Showing install button (Android/Desktop)");
       }
     };
 
     const onAppInstalled = () => {
+      log("App installed event fired");
       localStorage.setItem(PWA_INSTALLED_KEY, "true");
-      setInstallSuccess(true);
-      setIsInstalling(false);
-      setTimeout(() => setShowPrompt(false), 4000);
+      setSuccess(true);
+      setInstalling(false);
+      setTimeout(() => setVisible(false), 4000);
     };
 
-    const mediaQuery = window.matchMedia("(display-mode: standalone)");
-    const onDisplayModeChange = () => {
-      if (mediaQuery.matches || isInStandaloneMode()) setShowPrompt(false);
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isInStandaloneMode()) setShowPrompt(false);
+    const onAuthReady = () => {
+      if (!canShow(pathname)) return;
+      if (detected === "ios") {
+        setVisible(true);
+      } else if (deferredRef.current) {
+        setVisible(true);
+      }
+      log("authReady event — rechecked visibility");
     };
 
-    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt, true);
+    const mq = window.matchMedia("(display-mode: standalone)");
+    const onMqChange = () => {
+      if (mq.matches || isStandalone()) {
+        log("Display-mode changed to standalone — hiding prompt");
+        setVisible(false);
+      }
+    };
+    const onVisChange = () => {
+      if (document.visibilityState === "visible" && isStandalone()) {
+        setVisible(false);
+      }
+    };
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
     window.addEventListener("appinstalled", onAppInstalled);
     window.addEventListener("campooling:authReady", onAuthReady);
-    mediaQuery.addEventListener("change", onDisplayModeChange);
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    mq.addEventListener("change", onMqChange);
+    document.addEventListener("visibilitychange", onVisChange);
+
     return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt, true);
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
       window.removeEventListener("appinstalled", onAppInstalled);
       window.removeEventListener("campooling:authReady", onAuthReady);
-      mediaQuery.removeEventListener("change", onDisplayModeChange);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      mq.removeEventListener("change", onMqChange);
+      document.removeEventListener("visibilitychange", onVisChange);
     };
   }, [pathname]);
 
-  const closePrompt = () => {
-    localStorage.setItem(DISMISS_UNTIL_KEY, String(Date.now() + DISMISS_TTL_MS));
-    setShowPrompt(false);
-    setInstallSuccess(false);
-  };
+  // ── SW update: detect new deployments and apply immediately ──
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
 
-  const handleInstallClick = async () => {
-    // 네이티브 설치 (Android Chrome): deferredPrompt가 반드시 있음
-    if (deferredPromptRef.current) {
-      setIsInstalling(true);
-      try {
-        await deferredPromptRef.current.prompt();
-        const result = await deferredPromptRef.current.userChoice;
-        if (result.outcome === "accepted") {
-          localStorage.setItem(PWA_INSTALLED_KEY, "true");
-          setInstallSuccess(true);
-          setTimeout(() => setShowPrompt(false), 4000);
-        }
-      } finally {
-        setIsInstalling(false);
-        deferredPromptRef.current = null;
-      }
-    }
-  };
+    navigator.serviceWorker.ready.then((reg) => {
+      reg.addEventListener("updatefound", () => {
+        const newSw = reg.installing;
+        if (!newSw) return;
+        log("New service worker installing…");
 
-  if (!showPrompt) return null;
+        newSw.addEventListener("statechange", () => {
+          if (newSw.state === "installed" && navigator.serviceWorker.controller) {
+            log("New SW installed — sending SKIP_WAITING");
+            newSw.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+    });
 
-  const titleText =
-    locale === "ko"
-      ? "더 빠르고 편리한 캠풀링 앱을 만나보세요."
-      : "Experience Campooling App for a faster & better ride.";
-  const installButtonText = isInstalling
-    ? locale === "ko" ? "설치 중..." : "Installing..."
-    : locale === "ko" ? "지금 설치하기" : "Install Now";
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      log("Controller changed — reloading page for new version");
+      window.location.reload();
+    });
+  }, []);
 
-  // 네이티브 설치 불가능한 브라우저용 수동 안내
-  const hasNativePrompt = supportsNativeInstall(browser);
+  if (!visible) return null;
+
+  const t = COPY[locale];
+  const isIos = platform === "ios";
+  const safari = isIosSafari();
 
   return (
     <div
       className="fixed left-0 right-0 z-[130] px-4"
       style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
     >
-      <div className="relative mx-auto w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
+      <div className="relative mx-auto w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+        {/* close */}
         <button
           type="button"
-          aria-label="설치 안내 닫기"
-          onClick={closePrompt}
-          className="absolute right-4 top-4 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          aria-label="Close"
+          onClick={dismiss}
+          className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
         >
-          ✕
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
         </button>
+
+        {/* header */}
         <div className="flex items-center gap-4 pr-8">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
             🚕
           </div>
-          <p className="text-sm font-semibold leading-snug text-gray-900">
-            {titleText}
-          </p>
+          <div>
+            <p className="text-[15px] font-bold leading-snug text-gray-900">
+              {t.title}
+            </p>
+            <p className="mt-0.5 text-sm text-gray-500">{t.subtitle}</p>
+          </div>
         </div>
 
-        {/* 수동 안내 (iOS / Samsung) */}
-        {!installSuccess && !hasNativePrompt && (
-          <p className="mt-3 text-xs leading-relaxed text-gray-600">
-            {browser === "ios-safari" && (
-              locale === "ko"
-                ? <>하단 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
-                : <>Tap Share (□↑) at the bottom, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>
-            )}
-            {browser === "ios-chrome" && (
-              locale === "ko"
-                ? <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong>Safari</strong>로 이 페이지를 열어주세요.</>
-                : <>Open this page in <strong>Safari</strong> to add it to your home screen.</>
-            )}
-            {browser === "android-samsung" && (
-              locale === "ko"
-                ? <>메뉴(≡) → <strong>&quot;현재 페이지 추가&quot;</strong> → <strong>&quot;홈 화면&quot;</strong>을 선택하세요.</>
-                : <>Tap Menu (≡) → <strong>&quot;Add page to&quot;</strong> → <strong>&quot;Home screen&quot;</strong>.</>
+        {/* success */}
+        {success && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+            <span>✅</span>
+            <span>{t.done}</span>
+          </div>
+        )}
+
+        {/* iOS guide */}
+        {!success && isIos && (
+          <p className="mt-3 text-[13px] leading-relaxed text-gray-600">
+            {safari ? (
+              <>
+                {locale === "ko" ? (
+                  <>하단 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+                ) : (
+                  <>Tap <strong>Share (□↑)</strong> at the bottom, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>
+                )}
+              </>
+            ) : (
+              <>
+                {locale === "ko" ? (
+                  <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong>Safari</strong>로 이 페이지를 열어주세요.</>
+                ) : (
+                  <>Open this page in <strong>Safari</strong> to add it to your home screen.</>
+                )}
+              </>
             )}
           </p>
         )}
 
-        {installSuccess ? (
-          <div className="mt-4 flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
-            <span>✅</span>
-            <span>
-              {locale === "ko"
-                ? "설치가 완료되었습니다. 바탕화면으로 꺼내 주세요."
-                : "Installation complete. Open it from your home screen!"}
-            </span>
-          </div>
-        ) : hasNativePrompt ? (
+        {/* Android / Desktop install button */}
+        {!success && !isIos && (
           <button
             type="button"
-            onClick={handleInstallClick}
-            disabled={isInstalling}
-            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleInstall}
+            disabled={installing || !deferredRef.current}
+            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {installButtonText}
+            {installing ? t.installing : t.install}
           </button>
-        ) : null}
+        )}
       </div>
     </div>
   );
