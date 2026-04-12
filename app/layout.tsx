@@ -58,6 +58,18 @@ export default function RootLayout({
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+window.__pwaPromptEvent = null;
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  window.__pwaPromptEvent = e;
+});`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">
         {/* 카카오톡 인앱 브라우저 탈출 로직:
           body 최상단에 배치하여 페이지 콘텐츠가 보이기 전/후 즉시 실행되도록 합니다.

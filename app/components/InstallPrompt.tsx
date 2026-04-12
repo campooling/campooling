@@ -193,19 +193,31 @@ export default function InstallPrompt() {
       return;
     }
 
+    // Check if beforeinstallprompt was captured globally before React mounted
+    const win = window as Window & { __pwaPromptEvent?: BeforeInstallPromptEvent | null };
+    if (win.__pwaPromptEvent) {
+      deferredRef.current = win.__pwaPromptEvent;
+      win.__pwaPromptEvent = null;
+      setHasNativePrompt(true);
+      setVisible(true);
+      log("beforeinstallprompt recovered from global capture — Install button enabled");
+    }
+
     // ALL platforms: show popup. The content adapts based on hasNativePrompt.
     // For platforms that might get beforeinstallprompt (Chrome/Desktop),
     // wait a short delay before showing so the event has time to fire.
-    if (detected === "android-chrome" || detected === "android-other" || detected === "desktop") {
-      fallbackTimerRef.current = setTimeout(() => {
-        if (canShow(pathname)) {
-          setVisible(true);
-          log("Showing popup (beforeinstallprompt fallback timer expired)");
-        }
-      }, FALLBACK_DELAY_MS);
-    } else {
-      setVisible(true);
-      log(`Showing popup immediately (${detected})`);
+    if (!deferredRef.current) {
+      if (detected === "android-chrome" || detected === "android-other" || detected === "desktop") {
+        fallbackTimerRef.current = setTimeout(() => {
+          if (canShow(pathname)) {
+            setVisible(true);
+            log("Showing popup (beforeinstallprompt fallback timer expired)");
+          }
+        }, FALLBACK_DELAY_MS);
+      } else {
+        setVisible(true);
+        log(`Showing popup immediately (${detected})`);
+      }
     }
 
     const onBeforeInstall = (e: Event) => {
