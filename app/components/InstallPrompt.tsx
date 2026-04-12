@@ -277,29 +277,29 @@ export default function InstallPrompt() {
       className="fixed left-0 right-0 z-[130] px-4"
       style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
     >
-      <div className="relative mx-auto w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+      <div className="relative mx-auto w-full max-w-xl rounded-2xl border border-gray-300 bg-white p-5 shadow-2xl ring-1 ring-black/5">
         <button
           type="button"
           aria-label="Close"
           onClick={dismiss}
-          className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+          className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
         </button>
 
         <div className="flex items-center gap-4 pr-8">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-3xl shadow-sm">
             🚕
           </div>
           <div>
-            <p className="text-[15px] font-bold leading-snug text-gray-900">{t.title}</p>
-            <p className="mt-0.5 text-sm text-gray-500">{t.subtitle}</p>
+            <p className="text-[15px] font-bold leading-snug text-gray-950">{t.title}</p>
+            <p className="mt-0.5 text-sm font-medium text-gray-600">{t.subtitle}</p>
           </div>
         </div>
 
         {/* success */}
         {success && (
-          <div className="mt-4 flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
             <span>✅</span>
             <span>{t.done}</span>
           </div>
@@ -307,18 +307,18 @@ export default function InstallPrompt() {
 
         {/* iOS guide */}
         {!success && isIos && (
-          <p className="mt-3 text-[13px] leading-relaxed text-gray-600">
+          <p className="mt-3 text-[13px] font-medium leading-relaxed text-gray-700">
             {isIosSafari() ? (
               locale === "ko" ? (
-                <>하단 공유 버튼(□↑)을 누른 뒤 <strong>&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
+                <>하단 공유 버튼(□↑)을 누른 뒤 <strong className="text-gray-950">&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
               ) : (
-                <>Tap <strong>Share (□↑)</strong> at the bottom, then choose <strong>&quot;Add to Home Screen&quot;</strong>.</>
+                <>Tap <strong className="text-gray-950">Share (□↑)</strong> at the bottom, then choose <strong className="text-gray-950">&quot;Add to Home Screen&quot;</strong>.</>
               )
             ) : (
               locale === "ko" ? (
-                <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong>Safari</strong>로 이 페이지를 열어주세요.</>
+                <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong className="text-gray-950">Safari</strong>로 이 페이지를 열어주세요.</>
               ) : (
-                <>Open this page in <strong>Safari</strong> to add it to your home screen.</>
+                <>Open this page in <strong className="text-gray-950">Safari</strong> to add it to your home screen.</>
               )
             )}
           </p>
@@ -326,17 +326,17 @@ export default function InstallPrompt() {
 
         {/* Samsung Internet guide */}
         {!success && isSamsung && (
-          <p className="mt-3 text-[13px] leading-relaxed text-gray-600">
+          <p className="mt-3 text-[13px] font-medium leading-relaxed text-gray-700">
             {t.samsungGuide}
           </p>
         )}
 
-        {/* Install button (Chrome / Samsung / Desktop) */}
+        {/* Install button (Chrome / Desktop) */}
         {!success && showButton && (
           <button
             type="button"
             onClick={handleInstall}
-            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98]"
+            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.98]"
           >
             {t.install}
           </button>
