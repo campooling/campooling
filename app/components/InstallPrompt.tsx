@@ -155,7 +155,7 @@ export default function InstallPrompt() {
       if (result.outcome === "accepted") {
         localStorage.setItem(PWA_INSTALLED_KEY, "true");
         setSuccess(true);
-        setTimeout(() => setVisible(false), 4000);
+        setTimeout(() => setVisible(false), 8000);
       } else {
         setVisible(false);
       }
@@ -208,7 +208,7 @@ export default function InstallPrompt() {
       localStorage.setItem(PWA_INSTALLED_KEY, "true");
       setSuccess(true);
       setInstalling(false);
-      setTimeout(() => setVisible(false), 4000);
+      setTimeout(() => setVisible(false), 8000);
     };
 
     const onAuthReady = () => {
