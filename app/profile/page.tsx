@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
@@ -34,81 +34,112 @@ export default function ProfilePage() {
   const [displayRole, setDisplayRole] = useState('—');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const podIdsRef = useRef<string[]>([]);
+
+  const fetchData = useCallback(async () => {
     if (!supabase) return;
-    const fetchData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.replace('/');
-        return;
-      }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.replace('/');
+      return;
+    }
 
-      // 1. Fetch Profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+    // 1. Fetch Profile
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
-      if (profile) {
-        setDisplayName(profile.nickname || 'User');
-        setDisplayRole(profile.role === 'USA_ARMY' ? 'U.S. Army' : 'KATUSA');
-      }
+    if (profile) {
+      setDisplayName(profile.nickname || 'User');
+      setDisplayRole(profile.role === 'USA_ARMY' ? 'U.S. Army' : 'KATUSA');
+    }
 
-      // 2. Fetch My Active Pods (Joined pods that are active)
-      const { data: memberships } = await supabase
-        .from('pod_members')
-        .select(`
-          pod:pods!inner (
-            *,
-            member_count:pod_members(count)
-          )
-        `)
-        .eq('user_id', user.id)
-        .eq('pod.status', 'active');
+    // 2. Fetch My Active Pods (Joined pods that are active)
+    const { data: memberships } = await supabase
+      .from('pod_members')
+      .select(`
+        pod:pods!inner (
+          *,
+          member_count:pod_members(count)
+        )
+      `)
+      .eq('user_id', user.id)
+      .eq('pod.status', 'active');
 
-      if (memberships) {
-        const now = Date.now();
-        const activePods = (memberships as MembershipRow[])
-          .map((m) => m.pod)
-          .filter(hasPod)
-          .map((p) => ({
-            ...p,
-            member_count: p.member_count?.[0]?.count || 0
-          }))
-          .filter((p) => {
-            const ms = new Date(p.departure_time).getTime();
-            return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > now;
-          })
-          .sort((a, b) => 
-            new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
-          );
+    if (memberships) {
+      const now = Date.now();
+      const activePods = (memberships as MembershipRow[])
+        .map((m) => m.pod)
+        .filter(hasPod)
+        .map((p) => ({
+          ...p,
+          member_count: p.member_count?.[0]?.count || 0
+        }))
+        .filter((p) => {
+          const ms = new Date(p.departure_time).getTime();
+          return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > now;
+        })
+        .sort((a, b) => 
+          new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
+        );
 
-        const podsWithUnread = await Promise.all(
-          activePods.map(async (p) => {
-            const lastRead = localStorage.getItem(`chat_read_${p.id}`);
-            if (!lastRead) {
-              const { count } = await supabase
-                .from('messages')
-                .select('*', { count: 'exact', head: true })
-                .eq('pod_id', p.id);
-              return { ...p, unread_count: count ?? 0 };
-            }
+      podIdsRef.current = activePods.map((p) => p.id);
+
+      const podsWithUnread = await Promise.all(
+        activePods.map(async (p) => {
+          const lastRead = localStorage.getItem(`chat_read_${p.id}`);
+          if (!lastRead) {
             const { count } = await supabase
               .from('messages')
               .select('*', { count: 'exact', head: true })
-              .eq('pod_id', p.id)
-              .gt('created_at', lastRead);
+              .eq('pod_id', p.id);
             return { ...p, unread_count: count ?? 0 };
-          })
-        );
-        setMyPods(podsWithUnread as MyPod[]);
-      }
-      setLoading(false);
-    };
-
-    fetchData();
+          }
+          const { count } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('pod_id', p.id)
+            .gt('created_at', lastRead);
+          return { ...p, unread_count: count ?? 0 };
+        })
+      );
+      setMyPods(podsWithUnread as MyPod[]);
+    }
+    setLoading(false);
   }, [router, supabase]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Realtime: subscribe to new messages for all active pods
+  useEffect(() => {
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel('profile_unread')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload: { new: { pod_id?: string } }) => {
+          const podId = payload.new.pod_id;
+          if (podId && podIdsRef.current.includes(podId)) {
+            setMyPods((prev) =>
+              prev.map((p) =>
+                p.id === podId ? { ...p, unread_count: p.unread_count + 1 } : p
+              )
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase]);
 
   const handleLogout = async () => {
     if (!supabase) return;
