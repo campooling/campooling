@@ -4,9 +4,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, PlusCircle, User } from 'lucide-react';
+import { useUnread } from './UnreadContext';
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const { totalUnread } = useUnread();
   const active = (href: string) => (pathname === href ? 'text-indigo-600' : 'text-gray-500');
 
   return (
@@ -25,8 +27,15 @@ export default function BottomNav() {
         </Link>
 
         {/* 프로필 (마이페이지) */}
-        <Link href="/profile" className={`flex flex-col items-center gap-1.5 ${active('/profile')} hover:text-indigo-600`}>
-          <User className="h-6 w-6" />
+        <Link href="/profile" className={`relative flex flex-col items-center gap-1.5 ${active('/profile')} hover:text-indigo-600`}>
+          <div className="relative">
+            <User className="h-6 w-6" />
+            {totalUnread > 0 && (
+              <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white shadow-sm">
+                {totalUnread > 99 ? '99+' : totalUnread}
+              </span>
+            )}
+          </div>
           <span className="text-xs font-semibold">Profile</span>
         </Link>
       </div>

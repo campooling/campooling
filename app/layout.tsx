@@ -4,6 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 import InAppBrowserHandler from "./components/InAppBrowserHandler";
 import InstallPrompt from "./components/InstallPrompt";
+import { UnreadProvider } from "./components/UnreadContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -69,8 +70,9 @@ export default function RootLayout({
         />
         <InAppBrowserHandler />
         <InstallPrompt />
-        
-        {children}
+        <UnreadProvider>
+          {children}
+        </UnreadProvider>
       </body>
     </html>
   );

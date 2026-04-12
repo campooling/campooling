@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, ChevronRight, CarTaxiFront } from 'lucide-react';
 import BottomNav from '../components/BottomNav';
 import { createClient } from '@/lib/supabase/client';
+import { useUnread } from '../components/UnreadContext';
 
 type MyPod = {
   id: string;
@@ -13,7 +14,6 @@ type MyPod = {
   departure_time: string;
   capacity: number;
   member_count: number;
-  unread_count: number;
 };
 
 type MembershipRow = {
@@ -33,8 +33,7 @@ export default function ProfilePage() {
   const [displayName, setDisplayName] = useState('Guest');
   const [displayRole, setDisplayRole] = useState('—');
   const [loading, setLoading] = useState(true);
-
-  const podIdsRef = useRef<string[]>([]);
+  const { podUnreads, refreshUnread } = useUnread();
 
   const fetchData = useCallback(async () => {
     if (!supabase) return;
@@ -44,7 +43,6 @@ export default function ProfilePage() {
       return;
     }
 
-    // 1. Fetch Profile
     const { data: profile } = await supabase
       .from('profiles')
       .select('*')
@@ -56,7 +54,6 @@ export default function ProfilePage() {
       setDisplayRole(profile.role === 'USA_ARMY' ? 'U.S. Army' : 'KATUSA');
     }
 
-    // 2. Fetch My Active Pods (Joined pods that are active)
     const { data: memberships } = await supabase
       .from('pod_members')
       .select(`
@@ -85,61 +82,15 @@ export default function ProfilePage() {
           new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
         );
 
-      podIdsRef.current = activePods.map((p) => p.id);
-
-      const podsWithUnread = await Promise.all(
-        activePods.map(async (p) => {
-          const lastRead = localStorage.getItem(`chat_read_${p.id}`);
-          if (!lastRead) {
-            const { count } = await supabase
-              .from('messages')
-              .select('*', { count: 'exact', head: true })
-              .eq('pod_id', p.id);
-            return { ...p, unread_count: count ?? 0 };
-          }
-          const { count } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('pod_id', p.id)
-            .gt('created_at', lastRead);
-          return { ...p, unread_count: count ?? 0 };
-        })
-      );
-      setMyPods(podsWithUnread as MyPod[]);
+      setMyPods(activePods as MyPod[]);
     }
     setLoading(false);
   }, [router, supabase]);
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
-
-  // Realtime: subscribe to new messages for all active pods
-  useEffect(() => {
-    if (!supabase) return;
-
-    const channel = supabase
-      .channel('profile_unread')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload: { new: { pod_id?: string } }) => {
-          const podId = payload.new.pod_id;
-          if (podId && podIdsRef.current.includes(podId)) {
-            setMyPods((prev) =>
-              prev.map((p) =>
-                p.id === podId ? { ...p, unread_count: p.unread_count + 1 } : p
-              )
-            );
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [supabase]);
+    refreshUnread();
+  }, [fetchData, refreshUnread]);
 
   const handleLogout = async () => {
     if (!supabase) return;
@@ -174,7 +125,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* 2. 현재 참여 중인 방 (기획 요소 반영) */}
+        {/* 2. 현재 참여 중인 방 */}
         <div>
           {myPods.length === 0 ? (
             <div className="rounded-2xl border border-dashed bg-white p-6 text-center text-sm font-semibold text-gray-500">
@@ -185,6 +136,7 @@ export default function ProfilePage() {
               {myPods.map((r) => {
                 const timeStr = new Date(r.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
                 const dateStr = new Date(r.departure_time).toLocaleDateString('en-US', { day: '2-digit', month: 'long' });
+                const unread = podUnreads.get(r.id) ?? 0;
 
                 return (
                   <div
@@ -195,9 +147,9 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-4">
                       <div className="relative rounded-full bg-indigo-600 p-2.5 text-white">
                         <CarTaxiFront className="h-6 w-6" />
-                        {r.unread_count > 0 && (
+                        {unread > 0 && (
                           <span className="absolute -left-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white shadow-sm">
-                            {r.unread_count > 99 ? '99+' : r.unread_count}
+                            {unread > 99 ? '99+' : unread}
                           </span>
                         )}
                       </div>
