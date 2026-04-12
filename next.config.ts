@@ -14,4 +14,5 @@ export default withPWA({
   dynamicStartUrl: false,
   cacheOnFrontEndNav: false,
   reloadOnOnline: true,
+  navigateFallback: "/",
 })(nextConfig);
