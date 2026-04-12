@@ -126,7 +126,6 @@ export default function InstallPrompt() {
   const [locale, setLocale] = useState<Locale>("en");
   const [installing, setInstalling] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [promptReady, setPromptReady] = useState(false);
 
   const dismiss = useCallback(() => {
     localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_TTL_MS));
@@ -156,13 +155,15 @@ export default function InstallPrompt() {
         localStorage.setItem(PWA_INSTALLED_KEY, "true");
         setSuccess(true);
         setTimeout(() => setVisible(false), 4000);
+      } else {
+        log("User dismissed native prompt");
+        setVisible(false);
       }
     } catch (err) {
       log("Install error or timeout", err);
     } finally {
       setInstalling(false);
       deferredRef.current = null;
-      setPromptReady(false);
     }
   }, []);
 
@@ -196,7 +197,6 @@ export default function InstallPrompt() {
     const onBeforeInstall = (e: Event) => {
       e.preventDefault();
       deferredRef.current = e as BeforeInstallPromptEvent;
-      setPromptReady(true);
       log("Install event captured (beforeinstallprompt)");
       if (canShow(pathname)) {
         setVisible(true);
@@ -349,7 +349,7 @@ export default function InstallPrompt() {
           <button
             type="button"
             onClick={handleInstall}
-            disabled={installing || !promptReady}
+            disabled={installing}
             className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {installing ? t.installing : t.install}
