@@ -221,86 +221,6 @@ export default function CreateRoomPage() {
     }
   };
 
-  const LocationSelectionModal = () => {
-    if (!activeLocationModal) return null;
-
-    const otherLocation = activeLocationModal === 'origin' ? destination : origin;
-
-    return (
-      <div className="fixed inset-0 z-[100] flex flex-col bg-white antialiased">
-        <header className="flex items-center gap-4 border-b bg-white px-6 py-4 shadow-sm">
-          <button onClick={() => { setActiveLocationModal(null); setShowOtherInput(false); }} className="text-gray-600 hover:text-indigo-600">
-            <X className="h-6 w-6" />
-          </button>
-        </header>
-        <main className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
-          {HumphreysLocations.map((loc) => {
-            const isDisabled = loc !== 'Other' && loc === otherLocation;
-            const isOther = loc === 'Other';
-
-            if (isOther && showOtherInput) {
-              return (
-                <div key={loc} className="rounded-2xl border border-indigo-300 bg-indigo-50/50 p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <MapPin className={`h-5 w-5 shrink-0 ${activeLocationModal === 'origin' ? 'text-indigo-500' : 'text-purple-500'}`} />
-                    <span className="text-base font-semibold text-gray-900">Other</span>
-                  </div>
-                  <input
-                    ref={otherInputRef}
-                    value={otherInput}
-                    onChange={(e) => {
-                      setOtherInput(e.target.value);
-                      if (otherError) {
-                        const err = getLocationValidationError(e.target.value);
-                        setOtherError(err ?? '');
-                      }
-                    }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleOtherSave(); }}
-                    placeholder="Type location name..."
-                    className={`w-full rounded-xl border bg-white px-4 py-3 text-base font-semibold text-gray-900 outline-none focus:border-indigo-500 ${otherError ? 'border-red-400' : 'border-gray-200'}`}
-                  />
-                  {otherError && (
-                    <p className="mt-1.5 pl-1 text-xs font-semibold text-red-500">{otherError}</p>
-                  )}
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleOtherCancel}
-                      className="flex-1 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-bold text-gray-600 active:scale-95"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleOtherSave}
-                      disabled={!otherInput.trim()}
-                      className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-bold text-white active:scale-95 disabled:opacity-40"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <button
-                key={loc}
-                type="button"
-                onClick={() => handleLocationSelect(loc)}
-                disabled={isDisabled}
-                className={`w-full text-left rounded-2xl border p-5 transition-all active:scale-95 flex items-center gap-4 ${isDisabled ? 'bg-gray-100 border-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
-              >
-                <MapPin className={`h-5 w-5 shrink-0 ${activeLocationModal === 'origin' ? 'text-indigo-500' : 'text-purple-500'}`} />
-                <span className={`text-base font-semibold ${isDisabled ? 'text-gray-400' : 'text-gray-900'}`}>{loc}</span>
-              </button>
-            );
-          })}
-        </main>
-      </div>
-    );
-  };
-
   return (
     <div className="flex h-dvh flex-col bg-gray-50 font-sans antialiased pb-24 relative overflow-x-hidden">
       
@@ -454,8 +374,83 @@ export default function CreateRoomPage() {
       {/* 하단 네비게이션바 (고정) */}
       <BottomNav />
 
-      {/* 장소 선택 모달 (최상단) */}
-      <LocationSelectionModal />
+      {/* 장소 선택 모달 (최상단) — 인라인 렌더링으로 포커스 유지 */}
+      {activeLocationModal && (() => {
+        const otherLocation = activeLocationModal === 'origin' ? destination : origin;
+        return (
+          <div className="fixed inset-0 z-[100] flex flex-col bg-white antialiased">
+            <header className="flex items-center gap-4 border-b bg-white px-6 py-4 shadow-sm">
+              <button onClick={() => { setActiveLocationModal(null); setShowOtherInput(false); }} className="text-gray-600 hover:text-indigo-600">
+                <X className="h-6 w-6" />
+              </button>
+            </header>
+            <main className="flex-1 overflow-y-auto px-6 py-6 space-y-3">
+              {HumphreysLocations.map((loc) => {
+                const isDisabled = loc !== 'Other' && loc === otherLocation;
+                const isOther = loc === 'Other';
+
+                if (isOther && showOtherInput) {
+                  return (
+                    <div key={loc} className="rounded-2xl border border-indigo-300 bg-indigo-50/50 p-5">
+                      <div className="flex items-center gap-3 mb-3">
+                        <MapPin className={`h-5 w-5 shrink-0 ${activeLocationModal === 'origin' ? 'text-indigo-500' : 'text-purple-500'}`} />
+                        <span className="text-base font-semibold text-gray-900">Other</span>
+                      </div>
+                      <input
+                        ref={otherInputRef}
+                        value={otherInput}
+                        onChange={(e) => {
+                          setOtherInput(e.target.value);
+                          if (otherError) {
+                            const err = getLocationValidationError(e.target.value);
+                            setOtherError(err ?? '');
+                          }
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleOtherSave(); }}
+                        placeholder="Type location name..."
+                        className={`w-full rounded-xl border bg-white px-4 py-3 text-base font-semibold text-gray-900 outline-none focus:border-indigo-500 ${otherError ? 'border-red-400' : 'border-gray-200'}`}
+                      />
+                      {otherError && (
+                        <p className="mt-1.5 pl-1 text-xs font-semibold text-red-500">{otherError}</p>
+                      )}
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleOtherCancel}
+                          className="flex-1 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-bold text-gray-600 active:scale-95"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleOtherSave}
+                          disabled={!otherInput.trim()}
+                          className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-bold text-white active:scale-95 disabled:opacity-40"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={loc}
+                    type="button"
+                    onClick={() => handleLocationSelect(loc)}
+                    disabled={isDisabled}
+                    className={`w-full text-left rounded-2xl border p-5 transition-all active:scale-95 flex items-center gap-4 ${isDisabled ? 'bg-gray-100 border-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
+                  >
+                    <MapPin className={`h-5 w-5 shrink-0 ${activeLocationModal === 'origin' ? 'text-indigo-500' : 'text-purple-500'}`} />
+                    <span className={`text-base font-semibold ${isDisabled ? 'text-gray-400' : 'text-gray-900'}`}>{loc}</span>
+                  </button>
+                );
+              })}
+            </main>
+          </div>
+        );
+      })()}
     </div>
   );
 }
