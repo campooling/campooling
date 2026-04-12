@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
       ],
     },
     {
-      source: "/workbox-:hash*.js",
+      source: "/workbox-:hash.js",
       headers: [
         { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
       ],
