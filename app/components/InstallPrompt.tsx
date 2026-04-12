@@ -20,6 +20,8 @@ const DISMISS_KEY = "installPromptDismissUntil";
 const DISMISS_TTL_MS = 24 * 60 * 60 * 1000;
 const PWA_INSTALLED_KEY = "pwaInstalled";
 
+const FALLBACK_DELAY_MS = 3000;
+
 type Platform = "android-chrome" | "android-samsung" | "android-other" | "ios" | "desktop";
 type Locale = "ko" | "en";
 
@@ -29,9 +31,9 @@ const COPY = {
     subtitle: "더 빠르고 쾌적하게 이용하세요",
     install: "지금 설치",
     done: "설치가 완료되었습니다. 홈 화면에서 열어주세요!",
+    chromeGuide: '우측 상단 메뉴(⋮)를 누른 뒤 "앱 설치" 또는 "홈 화면에 추가"를 선택하세요.',
     samsungGuide: '메뉴(≡) → "현재 페이지 추가" → "홈 화면"을 선택하세요.',
-    samsungFallback: '자동 설치에 실패했습니다. 메뉴(≡) → "현재 페이지 추가" → "홈 화면"을 선택해주세요.',
-    iosGuide: '하단 공유 버튼(□↑)을 누른 뒤 "홈 화면에 추가"를 선택하세요.',
+    iosSafariGuide: '하단 공유 버튼(□↑)을 누른 뒤 "홈 화면에 추가"를 선택하세요.',
     iosChromeGuide: "Safari에서 열어야 홈 화면에 추가할 수 있습니다. Safari로 이 페이지를 열어주세요.",
   },
   en: {
@@ -39,9 +41,9 @@ const COPY = {
     subtitle: "Install for a better experience",
     install: "Install Now",
     done: "Installation complete. Open it from your home screen!",
+    chromeGuide: 'Tap the menu (⋮) at the top right, then select "Install app" or "Add to Home screen".',
     samsungGuide: 'Tap Menu (≡) → "Add page to" → "Home screen".',
-    samsungFallback: 'Auto-install failed. Tap Menu (≡) → "Add page to" → "Home screen".',
-    iosGuide: 'Tap Share (□↑) at the bottom, then choose "Add to Home Screen".',
+    iosSafariGuide: 'Tap Share (□↑) at the bottom, then choose "Add to Home Screen".',
     iosChromeGuide: "Open this page in Safari to add it to your home screen.",
   },
 } as const;
@@ -118,12 +120,13 @@ function canShow(pathname: string): boolean {
 export default function InstallPrompt() {
   const pathname = usePathname();
   const deferredRef = useRef<BeforeInstallPromptEvent | null>(null);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [visible, setVisible] = useState(false);
   const [platform, setPlatform] = useState<Platform>("desktop");
   const [locale, setLocale] = useState<Locale>("en");
   const [success, setSuccess] = useState(false);
-  
+  const [hasNativePrompt, setHasNativePrompt] = useState(false);
 
   const dismiss = useCallback(() => {
     localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_TTL_MS));
@@ -180,21 +183,39 @@ export default function InstallPrompt() {
     }
 
     const eligible = canShow(pathname);
-
-    // iOS / Samsung: show manual guide immediately
-    if ((detected === "ios" || detected === "android-samsung") && eligible) {
-      setVisible(true);
-      log(`Showing manual guide (${detected})`);
+    if (!eligible) {
+      log("Not eligible — no prompt");
+      return;
     }
 
-    // Samsung / Chrome / other: wait for beforeinstallprompt
+    // ALL platforms: show popup. The content adapts based on hasNativePrompt.
+    // For platforms that might get beforeinstallprompt (Chrome/Desktop),
+    // wait a short delay before showing so the event has time to fire.
+    if (detected === "android-chrome" || detected === "android-other" || detected === "desktop") {
+      fallbackTimerRef.current = setTimeout(() => {
+        if (canShow(pathname)) {
+          setVisible(true);
+          log("Showing popup (beforeinstallprompt fallback timer expired)");
+        }
+      }, FALLBACK_DELAY_MS);
+    } else {
+      setVisible(true);
+      log(`Showing popup immediately (${detected})`);
+    }
+
     const onBeforeInstall = (e: Event) => {
       e.preventDefault();
       deferredRef.current = e as BeforeInstallPromptEvent;
-      log("beforeinstallprompt captured");
+      setHasNativePrompt(true);
+      log("beforeinstallprompt captured — Install button enabled");
+
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+
       if (canShow(pathname)) {
         setVisible(true);
-        log("Showing install button");
       }
     };
 
@@ -207,12 +228,8 @@ export default function InstallPrompt() {
 
     const onAuthReady = () => {
       if (!canShow(pathname)) return;
-      if (detected === "ios" || detected === "android-samsung") {
-        setVisible(true);
-      } else if (deferredRef.current) {
-        setVisible(true);
-      }
-      log("authReady — rechecked");
+      setVisible(true);
+      log("authReady — showing popup");
     };
 
     const mq = window.matchMedia("(display-mode: standalone)");
@@ -230,6 +247,7 @@ export default function InstallPrompt() {
     document.addEventListener("visibilitychange", onVisChange);
 
     return () => {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
       window.removeEventListener("appinstalled", onAppInstalled);
       window.removeEventListener("campooling:authReady", onAuthReady);
@@ -270,7 +288,7 @@ export default function InstallPrompt() {
   const t = COPY[locale];
   const isIos = platform === "ios";
   const isSamsung = platform === "android-samsung";
-  const showButton = !isIos && !isSamsung;
+  const isChrome = platform === "android-chrome" || platform === "android-other" || platform === "desktop";
 
   return (
     <div
@@ -305,21 +323,24 @@ export default function InstallPrompt() {
           </div>
         )}
 
-        {/* iOS guide */}
-        {!success && isIos && (
+        {/* iOS Safari guide */}
+        {!success && isIos && isIosSafari() && (
           <p className="mt-3 text-[13px] font-medium leading-relaxed text-gray-700">
-            {isIosSafari() ? (
-              locale === "ko" ? (
-                <>하단 공유 버튼(□↑)을 누른 뒤 <strong className="text-gray-950">&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
-              ) : (
-                <>Tap <strong className="text-gray-950">Share (□↑)</strong> at the bottom, then choose <strong className="text-gray-950">&quot;Add to Home Screen&quot;</strong>.</>
-              )
+            {locale === "ko" ? (
+              <>하단 공유 버튼(□↑)을 누른 뒤 <strong className="text-gray-950">&quot;홈 화면에 추가&quot;</strong>를 선택하세요.</>
             ) : (
-              locale === "ko" ? (
-                <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong className="text-gray-950">Safari</strong>로 이 페이지를 열어주세요.</>
-              ) : (
-                <>Open this page in <strong className="text-gray-950">Safari</strong> to add it to your home screen.</>
-              )
+              <>Tap <strong className="text-gray-950">Share (□↑)</strong> at the bottom, then choose <strong className="text-gray-950">&quot;Add to Home Screen&quot;</strong>.</>
+            )}
+          </p>
+        )}
+
+        {/* iOS non-Safari guide */}
+        {!success && isIos && !isIosSafari() && (
+          <p className="mt-3 text-[13px] font-medium leading-relaxed text-gray-700">
+            {locale === "ko" ? (
+              <>Safari에서 열어야 홈 화면에 추가할 수 있습니다. <strong className="text-gray-950">Safari</strong>로 이 페이지를 열어주세요.</>
+            ) : (
+              <>Open this page in <strong className="text-gray-950">Safari</strong> to add it to your home screen.</>
             )}
           </p>
         )}
@@ -331,8 +352,8 @@ export default function InstallPrompt() {
           </p>
         )}
 
-        {/* Install button (Chrome / Desktop) */}
-        {!success && showButton && (
+        {/* Chrome/Desktop: Install button (if native prompt available) */}
+        {!success && isChrome && hasNativePrompt && (
           <button
             type="button"
             onClick={handleInstall}
@@ -340,6 +361,13 @@ export default function InstallPrompt() {
           >
             {t.install}
           </button>
+        )}
+
+        {/* Chrome/Desktop: manual guide (if native prompt NOT available) */}
+        {!success && isChrome && !hasNativePrompt && (
+          <p className="mt-3 text-[13px] font-medium leading-relaxed text-gray-700">
+            {t.chromeGuide}
+          </p>
         )}
       </div>
     </div>
