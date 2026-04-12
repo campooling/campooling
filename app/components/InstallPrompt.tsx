@@ -258,11 +258,43 @@ export default function InstallPrompt() {
     };
   }, [pathname]);
 
-  // ── SW update ──
+  // ── SW reset & update ──
   useEffect(() => {
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
 
+    const SW_VERSION = "2";
+    const SW_VERSION_KEY = "campooling_sw_ver";
+    const stored = localStorage.getItem(SW_VERSION_KEY);
+
+    if (stored !== SW_VERSION) {
+      log(`SW version mismatch (${stored} → ${SW_VERSION}) — full reset`);
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => {
+          log(`Unregistering ${regs.length} service worker(s)`);
+          return Promise.all(regs.map((r) => r.unregister()));
+        })
+        .then(() => caches.keys())
+        .then((keys) => {
+          log(`Clearing ${keys.length} cache(s)`);
+          return Promise.all(keys.map((k) => caches.delete(k)));
+        })
+        .then(() => {
+          localStorage.setItem(SW_VERSION_KEY, SW_VERSION);
+          log("Full SW reset complete — reloading");
+          window.location.reload();
+        })
+        .catch((err) => {
+          log("SW reset error", err);
+          localStorage.setItem(SW_VERSION_KEY, SW_VERSION);
+        });
+      return;
+    }
+
     navigator.serviceWorker.ready.then((reg) => {
+      log(`SW active: ${!!reg.active}, scope: ${reg.scope}`);
+      reg.update().catch(() => {});
+
       reg.addEventListener("updatefound", () => {
         const newSw = reg.installing;
         if (!newSw) return;
