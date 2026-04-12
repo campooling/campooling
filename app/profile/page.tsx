@@ -13,6 +13,7 @@ type MyPod = {
   departure_time: string;
   capacity: number;
   member_count: number;
+  unread_count: number;
 };
 
 type MembershipRow = {
@@ -68,14 +69,13 @@ export default function ProfilePage() {
 
       if (memberships) {
         const now = Date.now();
-        const formattedPods = (memberships as MembershipRow[])
+        const activePods = (memberships as MembershipRow[])
           .map((m) => m.pod)
           .filter(hasPod)
           .map((p) => ({
             ...p,
             member_count: p.member_count?.[0]?.count || 0
           }))
-          // 6시간 지난 방은 프로필에서도 제거(그리고 status 만료 처리)
           .filter((p) => {
             const ms = new Date(p.departure_time).getTime();
             return Number.isFinite(ms) && ms + 6 * 60 * 60 * 1000 > now;
@@ -83,7 +83,26 @@ export default function ProfilePage() {
           .sort((a, b) => 
             new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime()
           );
-        setMyPods(formattedPods as MyPod[]);
+
+        const podsWithUnread = await Promise.all(
+          activePods.map(async (p) => {
+            const lastRead = localStorage.getItem(`chat_read_${p.id}`);
+            if (!lastRead) {
+              const { count } = await supabase
+                .from('messages')
+                .select('*', { count: 'exact', head: true })
+                .eq('pod_id', p.id);
+              return { ...p, unread_count: count ?? 0 };
+            }
+            const { count } = await supabase
+              .from('messages')
+              .select('*', { count: 'exact', head: true })
+              .eq('pod_id', p.id)
+              .gt('created_at', lastRead);
+            return { ...p, unread_count: count ?? 0 };
+          })
+        );
+        setMyPods(podsWithUnread as MyPod[]);
       }
       setLoading(false);
     };
@@ -143,8 +162,13 @@ export default function ProfilePage() {
                     className="flex cursor-pointer items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-5 shadow-sm transition-all hover:border-indigo-300 active:scale-95"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="rounded-full bg-indigo-600 p-2.5 text-white">
+                      <div className="relative rounded-full bg-indigo-600 p-2.5 text-white">
                         <CarTaxiFront className="h-6 w-6" />
+                        {r.unread_count > 0 && (
+                          <span className="absolute -left-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white shadow-sm">
+                            {r.unread_count > 99 ? '99+' : r.unread_count}
+                          </span>
+                        )}
                       </div>
                       <div>
                         <p className="text-sm font-bold text-indigo-600">

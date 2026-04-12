@@ -80,6 +80,21 @@ export default function ChatRoomPage() {
     [podTimeMs, now]
   );
 
+  // Mark this chat as read whenever the user is viewing it
+  useEffect(() => {
+    if (!roomId) return;
+    const key = `chat_read_${roomId}`;
+    localStorage.setItem(key, new Date().toISOString());
+
+    const onVisChange = () => {
+      if (document.visibilityState === "visible") {
+        localStorage.setItem(key, new Date().toISOString());
+      }
+    };
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => document.removeEventListener("visibilitychange", onVisChange);
+  }, [roomId]);
+
   const fetchPodDetails = useCallback(async () => {
     if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
@@ -163,6 +178,7 @@ export default function ChatRoomPage() {
           profiles: profileData
         };
         setMessages((prev) => [...prev, newMessage]);
+        localStorage.setItem(`chat_read_${roomId}`, new Date().toISOString());
       })
       .subscribe();
 
