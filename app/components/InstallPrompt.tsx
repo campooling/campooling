@@ -126,13 +126,12 @@ export default function InstallPrompt() {
   const [locale, setLocale] = useState<Locale>("en");
   const [installing, setInstalling] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [samsungFallback, setSamsungFallback] = useState(false);
+  
 
   const dismiss = useCallback(() => {
     localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_TTL_MS));
     setVisible(false);
     setSuccess(false);
-    setSamsungFallback(false);
     log("User dismissed");
   }, []);
 
@@ -161,8 +160,7 @@ export default function InstallPrompt() {
         setVisible(false);
       }
     } catch (err) {
-      log("Install error — showing fallback guide", err);
-      setSamsungFallback(true);
+      log("Install error", err);
     } finally {
       setInstalling(false);
       deferredRef.current = null;
@@ -188,10 +186,10 @@ export default function InstallPrompt() {
 
     const eligible = canShow(pathname);
 
-    // iOS: always show guide (no native install)
-    if (detected === "ios" && eligible) {
+    // iOS / Samsung: show manual guide immediately
+    if ((detected === "ios" || detected === "android-samsung") && eligible) {
       setVisible(true);
-      log("Showing iOS guide");
+      log(`Showing manual guide (${detected})`);
     }
 
     // Samsung / Chrome / other: wait for beforeinstallprompt
@@ -215,7 +213,7 @@ export default function InstallPrompt() {
 
     const onAuthReady = () => {
       if (!canShow(pathname)) return;
-      if (detected === "ios") {
+      if (detected === "ios" || detected === "android-samsung") {
         setVisible(true);
       } else if (deferredRef.current) {
         setVisible(true);
@@ -278,7 +276,7 @@ export default function InstallPrompt() {
   const t = COPY[locale];
   const isIos = platform === "ios";
   const isSamsung = platform === "android-samsung";
-  const showButton = !isIos && !samsungFallback;
+  const showButton = !isIos && !isSamsung;
 
   return (
     <div
@@ -332,10 +330,10 @@ export default function InstallPrompt() {
           </p>
         )}
 
-        {/* Samsung fallback guide (shown after native install fails) */}
-        {!success && samsungFallback && (
+        {/* Samsung Internet guide */}
+        {!success && isSamsung && (
           <p className="mt-3 text-[13px] leading-relaxed text-gray-600">
-            {t.samsungFallback}
+            {t.samsungGuide}
           </p>
         )}
 
